@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="void_background">#FF0A0416</color>
+    <color name="void_surface">#FF150A2E</color>
+    <color name="void_surface_variant">#FF1E0F3C</color>
+    <color name="electric_violet">#FF8B5CF6</color>
+    <color name="bright_amethyst">#FFA855F7</color>
+    <color name="soft_lavender">#FFC084FC</color>
+    <color name="text_primary">#FFF3E8FF</color>
+    <color name="text_secondary">#FFA78BFA</color>
+</resources>
