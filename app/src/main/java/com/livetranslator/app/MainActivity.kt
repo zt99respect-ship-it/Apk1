@@ -1,5 +1,6 @@
 package com.livetranslator.app
 
+import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
 import android.view.ActionMode
@@ -27,6 +28,8 @@ class MainActivity : ComponentActivity() {
       navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
     )
     val app = application as LiveTranslatorApp
+    handleAutoStartIntent(intent, app)
+
     setContent {
       LiveTranslatorTheme {
         val platformToolbar = LocalTextToolbar.current
@@ -42,6 +45,19 @@ class MainActivity : ComponentActivity() {
           AppNavHost(app = app)
         }
       }
+    }
+  }
+
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    handleAutoStartIntent(intent, application as LiveTranslatorApp)
+  }
+
+  private fun handleAutoStartIntent(intent: Intent?, app: LiveTranslatorApp) {
+    if (intent?.getBooleanExtra(EXTRA_AUTO_START_TRANSLATION, false) == true) {
+      intent.removeExtra(EXTRA_AUTO_START_TRANSLATION)
+      app.sessionManager.requestStartFromOverlay()
     }
   }
 
@@ -63,6 +79,10 @@ class MainActivity : ComponentActivity() {
       runCatching { mode.finish() }
     }
     super.onPause()
+  }
+
+  companion object {
+    const val EXTRA_AUTO_START_TRANSLATION = "extra_auto_start_translation"
   }
 }
 

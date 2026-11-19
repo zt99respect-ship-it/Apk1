@@ -46,6 +46,8 @@ class SettingsDataStore(private val context: Context) {
     val OVERLAY_BOX_COLOR_ARGB = longPreferencesKey("overlay_box_color_argb")
     val OVERLAY_BOX_OPACITY = floatPreferencesKey("overlay_box_opacity")
     val OVERLAY_CORNER_RADIUS_DP = floatPreferencesKey("overlay_corner_radius_dp")
+    val OVERLAY_CUSTOM_X = intPreferencesKey("overlay_custom_x")
+    val OVERLAY_CUSTOM_Y = intPreferencesKey("overlay_custom_y")
   }
 
   val settingsFlow: Flow<UserSettings> =
@@ -82,6 +84,8 @@ class SettingsDataStore(private val context: Context) {
         overlayBoxColorArgb = prefs[Keys.OVERLAY_BOX_COLOR_ARGB] ?: 0xFF09090B,
         overlayBoxOpacity = (prefs[Keys.OVERLAY_BOX_OPACITY] ?: 0.86f).coerceIn(0f, 1f),
         overlayCornerRadiusDp = (prefs[Keys.OVERLAY_CORNER_RADIUS_DP] ?: 22f).coerceIn(0f, 32f),
+        overlayCustomX = prefs[Keys.OVERLAY_CUSTOM_X] ?: -1,
+        overlayCustomY = prefs[Keys.OVERLAY_CUSTOM_Y] ?: -1,
       )
     }
 
@@ -196,10 +200,25 @@ class SettingsDataStore(private val context: Context) {
     }
   }
 
+  suspend fun setOverlayCustomPosition(x: Int, y: Int) {
+    context.settingsDataStore.edit {
+      it[Keys.OVERLAY_CUSTOM_X] = x.coerceAtLeast(0)
+      it[Keys.OVERLAY_CUSTOM_Y] = y.coerceAtLeast(0)
+    }
+  }
+
+  suspend fun resetOverlayCustomPosition() {
+    context.settingsDataStore.edit {
+      it[Keys.OVERLAY_CUSTOM_X] = -1
+      it[Keys.OVERLAY_CUSTOM_Y] = -1
+    }
+  }
+
   suspend fun resetStyleToDefaults() {
     applyStylePreset(OverlayStylePreset.ORIGINAL)
     setOverlayPosition(OverlayPosition.BOTTOM)
     setOverlayCornerRadiusDp(22f)
+    resetOverlayCustomPosition()
   }
 
   suspend fun resetAllSettings() {

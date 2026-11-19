@@ -145,4 +145,80 @@ class LiveTranslatorRobolectricTest {
     assertEquals(1, remaining.size)
     assertEquals("Recent stream line", remaining.first().sourceText)
   }
+
+  @Test
+  fun `overlay custom position saves and resets cleanly`() = runTest {
+    val initial = repository.getCurrentSettings()
+    assertEquals(-1, initial.overlayCustomX)
+    assertEquals(-1, initial.overlayCustomY)
+
+    repository.setOverlayCustomPosition(120, 480)
+    val updated = repository.getCurrentSettings()
+    assertEquals(120, updated.overlayCustomX)
+    assertEquals(480, updated.overlayCustomY)
+
+    repository.resetOverlayCustomPosition()
+    val reset = repository.getCurrentSettings()
+    assertEquals(-1, reset.overlayCustomX)
+    assertEquals(-1, reset.overlayCustomY)
+  }
+
+  @Test
+  fun `session manager keeps watermark panel, subtitle visibility, and repositioning decoupled`() {
+    val manager = com.livetranslator.app.engine.TranslationSessionManager()
+    val initial = manager.state.value
+    assertEquals(false, initial.isControlPanelOpen)
+    assertEquals(true, initial.isSubtitleVisible)
+    assertEquals(false, initial.isRepositioningSubtitle)
+
+    manager.toggleControlPanel()
+    assertEquals(true, manager.state.value.isControlPanelOpen)
+    assertEquals(false, manager.state.value.isRepositioningSubtitle)
+
+    manager.setSubtitleVisible(false)
+    assertEquals(false, manager.state.value.isSubtitleVisible)
+
+    // Enabling repositioning automatically makes subtitle visible so user can drag it
+    manager.setRepositioningSubtitle(true)
+    assertEquals(true, manager.state.value.isRepositioningSubtitle)
+    assertEquals(true, manager.state.value.isSubtitleVisible)
+
+    manager.setRepositioningSubtitle(false)
+    assertEquals(false, manager.state.value.isRepositioningSubtitle)
+
+    manager.publishLivePartialTranslation(
+      partialSource = "hello guys",
+      liveArabicText = "أهلاً يا رفاق",
+      sourceLang = "en",
+    )
+    assertEquals(true, manager.state.value.isLivePartial)
+    assertEquals("أهلاً يا رفاق", manager.state.value.lastTranslatedText)
+    assertEquals(0, manager.state.value.segmentsTranslated)
+  }
+
+  @Test
+  fun `audio conditioning removes DC offset and boosts quiet PCM16 safely`() {
+    // 100 samples of quiet speech (~200 amplitude) with +500 DC bias
+    val sampleCount = 100
+    val pcm = ByteArray(sampleCount * 2)
+    for (i in 0 until sampleCount) {
+      val s = (if (i % 2 == 0) 200 else -200) + 500
+      pcm[i * 2] = (s and 0xFF).toByte()
+      pcm[i * 2 + 1] = ((s shr 8) and 0xFF).toByte()
+    }
+    val rawRms = com.livetranslator.app.engine.AudioCaptureManager.computePcm16Rms(pcm)
+    val nextGain = com.livetranslator.app.engine.AudioCaptureManager.conditionPcm16InPlace(pcm, pcm.size, rawRms, 1.0)
+    val conditionedRms = com.livetranslator.app.engine.AudioCaptureManager.computePcm16Rms(pcm)
+    assertEquals(true, nextGain > 1.0)
+    assertEquals(true, conditionedRms > 220.0)
+  }
+
+  @Test
+  fun `mlkit fast script detection resolves unambiguous scripts in zero latency`() {
+    assertEquals("ru", com.livetranslator.app.engine.MlKitTranslationEngine.detectScriptFast("Привет как дела"))
+    assertEquals("ja", com.livetranslator.app.engine.MlKitTranslationEngine.detectScriptFast("こんにちは世界"))
+    assertEquals("ko", com.livetranslator.app.engine.MlKitTranslationEngine.detectScriptFast("안녕하세요 여러분"))
+    assertEquals("ar", com.livetranslator.app.engine.MlKitTranslationEngine.detectScriptFast("مرحبا بكم جميعا"))
+    assertEquals(null, com.livetranslator.app.engine.MlKitTranslationEngine.detectScriptFast("Hello world"))
+  }
 }

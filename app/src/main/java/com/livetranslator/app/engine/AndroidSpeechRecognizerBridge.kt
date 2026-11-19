@@ -15,9 +15,8 @@ import com.livetranslator.app.data.model.SupportedLanguages
 import java.io.OutputStream
 
 /**
- * Bridges Android's flexible SpeechRecognizer (including API 33+ EXTRA_AUDIO_SOURCE PCM pipe
- * for internal system audio) while signaling automatic fallback to Vosk whenever unavailable
- * or rejected by the OEM speech service.
+ * Low-latency streaming SpeechRecognizer bridge (supporting API 33+ EXTRA_AUDIO_SOURCE PCM pipe
+ * for internal system audio) with automatic silent-stall watchdog failover to local Vosk.
  */
 class AndroidSpeechRecognizerBridge(private val context: Context) {
 
@@ -29,6 +28,10 @@ class AndroidSpeechRecognizerBridge(private val context: Context) {
 
   @Volatile private var active = false
   @Volatile private var usingAudioPipe = false
+  @Volatile private var firstSpeechAudioMs = 0L
+  @Volatile private var lastRecognitionActivityMs = 0L
+  @Volatile private var receivedAnyRecognitionOutput = false
+
   private var configuredLangCode: String = SupportedLanguages.AUTO_CODE
   private var onPartialCallback: ((String) -> Unit)? = null
   private var onFinalCallback: ((String) -> Unit)? = null
@@ -53,6 +56,9 @@ class AndroidSpeechRecognizerBridge(private val context: Context) {
     onFallbackCallback = onFallbackToVosk
     usingAudioPipe = true
     active = true
+    firstSpeechAudioMs = 0L
+    lastRecognitionActivityMs = System.currentTimeMillis()
+    receivedAnyRecognitionOutput = false
 
     val pipe =
       runCatching { ParcelFileDescriptor.createPipe() }.getOrElse {
@@ -70,9 +76,32 @@ class AndroidSpeechRecognizerBridge(private val context: Context) {
     return true
   }
 
-  fun writePcmFrame(pcmBytes: ByteArray, length: Int): Boolean {
+  /**
+   * Feeds a PCM frame to the SpeechRecognizer pipe and checks whether active speech has stalled
+   * silently without producing any partials/finals (common when an OEM speech service blocks pipes).
+   */
+  fun writePcmFrame(pcmBytes: ByteArray, length: Int, isSpeechActive: Boolean): Boolean {
     if (!active || !usingAudioPipe) return false
     val stream = pipeOutputStream ?: return false
+
+    val now = System.currentTimeMillis()
+    if (isSpeechActive) {
+      if (firstSpeechAudioMs == 0L) {
+        firstSpeechAudioMs = now
+      } else if (
+        !receivedAnyRecognitionOutput &&
+          now - firstSpeechAudioMs >= STALL_WATCHDOG_MS &&
+          now - lastRecognitionActivityMs >= STALL_WATCHDOG_MS
+      ) {
+        mainHandler.post {
+          if (active && !receivedAnyRecognitionOutput) {
+            triggerFallback("التبديل التلقائي الفوري لمحرك Vosk للاستجابة السريعة")
+          }
+        }
+        return false
+      }
+    }
+
     return try {
       stream.write(pcmBytes, 0, length)
       true
@@ -95,8 +124,14 @@ class AndroidSpeechRecognizerBridge(private val context: Context) {
     speechRecognizer = recognizer
     recognizer.setRecognitionListener(
       object : RecognitionListener {
-        override fun onReadyForSpeech(params: Bundle?) {}
-        override fun onBeginningOfSpeech() {}
+        override fun onReadyForSpeech(params: Bundle?) {
+          lastRecognitionActivityMs = System.currentTimeMillis()
+        }
+
+        override fun onBeginningOfSpeech() {
+          lastRecognitionActivityMs = System.currentTimeMillis()
+        }
+
         override fun onRmsChanged(rmsdB: Float) {}
         override fun onBufferReceived(buffer: ByteArray?) {}
         override fun onEndOfSpeech() {}
@@ -104,19 +139,17 @@ class AndroidSpeechRecognizerBridge(private val context: Context) {
         override fun onError(error: Int) {
           if (!active) return
           if (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
-            if (!usePipe) {
-              restartSoon(usePipe = false)
-            } else {
-              // Pipe ended or timed out silently; keep fallback smooth
-              restartSoon(usePipe = true)
-            }
+            restartSoon(usePipe = usePipe)
           } else {
-            triggerFallback("التحويل التلقائي لمحرك Vosk الاحتياطي (رمز $error)")
+            triggerFallback("التحويل التلقائي لمحرك Vosk (رمز $error)")
           }
         }
 
         override fun onResults(results: Bundle?) {
           if (!active) return
+          receivedAnyRecognitionOutput = true
+          lastRecognitionActivityMs = System.currentTimeMillis()
+          firstSpeechAudioMs = 0L
           val text =
             results
               ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
@@ -138,6 +171,9 @@ class AndroidSpeechRecognizerBridge(private val context: Context) {
               ?.trim()
               .orEmpty()
           if (partial.isNotBlank()) {
+            receivedAnyRecognitionOutput = true
+            lastRecognitionActivityMs = System.currentTimeMillis()
+            firstSpeechAudioMs = 0L
             onPartialCallback?.invoke(partial)
           }
         }
@@ -151,10 +187,12 @@ class AndroidSpeechRecognizerBridge(private val context: Context) {
         putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
         putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
         putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-        if (configuredLangCode != SupportedLanguages.AUTO_CODE) {
-          val localeTag = SupportedLanguages.findByCode(configuredLangCode).speechLocaleTag
-          putExtra(RecognizerIntent.EXTRA_LANGUAGE, localeTag)
-        }
+        putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 280L)
+        putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 480L)
+        putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 800L)
+        val localeTag = SupportedLanguages.findByCode(configuredLangCode).speechLocaleTag
+        putExtra(RecognizerIntent.EXTRA_LANGUAGE, localeTag)
+        putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, localeTag)
         if (usePipe && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
           pipeReadFd?.let { readFd ->
             putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE, readFd)
@@ -181,7 +219,7 @@ class AndroidSpeechRecognizerBridge(private val context: Context) {
           startRecognizerInternal(usePipe = usePipe)
         }
       },
-      150L,
+      20L,
     )
   }
 
@@ -194,6 +232,8 @@ class AndroidSpeechRecognizerBridge(private val context: Context) {
   fun stop() {
     active = false
     usingAudioPipe = false
+    firstSpeechAudioMs = 0L
+    receivedAnyRecognitionOutput = false
     onPartialCallback = null
     onFinalCallback = null
     onFallbackCallback = null
@@ -208,5 +248,9 @@ class AndroidSpeechRecognizerBridge(private val context: Context) {
     pipeOutputStream = null
     pipeWriteFd = null
     pipeReadFd = null
+  }
+
+  companion object {
+    private const val STALL_WATCHDOG_MS = 2200L
   }
 }

@@ -89,11 +89,83 @@ fun AppNavHost(app: LiveTranslatorApp) {
   val accountViewModel: AccountViewModel = viewModel(factory = factory)
 
   val settings by mainViewModel.settings.collectAsStateWithLifecycle()
+  val sessionState by mainViewModel.sessionState.collectAsStateWithLifecycle()
+  val context = androidx.compose.ui.platform.LocalContext.current
   val navController = rememberNavController()
   val backStackEntry by navController.currentBackStackEntryAsState()
   val currentRoute = backStackEntry?.destination?.route
   val focusManager = LocalFocusManager.current
   val textToolbar = LocalTextToolbar.current
+
+  val overlayProjectionLauncher =
+    androidx.activity.compose.rememberLauncherForActivityResult(
+      androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+      if (result.resultCode == android.app.Activity.RESULT_OK && result.data != null) {
+        app.sessionManager.setPendingMediaProjection(result.resultCode, result.data)
+        val serviceIntent =
+          android.content.Intent(
+            context,
+            com.livetranslator.app.service.TranslationForegroundService::class.java,
+          ).apply {
+            action = com.livetranslator.app.service.TranslationForegroundService.ACTION_START
+          }
+        androidx.core.content.ContextCompat.startForegroundService(context, serviceIntent)
+        (context as? android.app.Activity)?.moveTaskToBack(true)
+      } else {
+        app.sessionManager.publishError("تم إلغاء إذن التقاط صوت الهاتف", expandOverlay = false)
+      }
+    }
+
+  val overlayMicLauncher =
+    androidx.activity.compose.rememberLauncherForActivityResult(
+      androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { granted ->
+      if (granted) {
+        val serviceIntent =
+          android.content.Intent(
+            context,
+            com.livetranslator.app.service.TranslationForegroundService::class.java,
+          ).apply {
+            action =
+              com.livetranslator.app.service.TranslationForegroundService.ACTION_START_MIC_ONLY
+          }
+        androidx.core.content.ContextCompat.startForegroundService(context, serviceIntent)
+        (context as? android.app.Activity)?.moveTaskToBack(true)
+      }
+    }
+
+  LaunchedEffect(sessionState.pendingStartRequestId) {
+    if (sessionState.pendingStartRequestId > 0L) {
+      app.sessionManager.clearPendingStartRequest()
+      if (settings.audioSourcePreference == com.livetranslator.app.data.model.AudioSourcePreference.MICROPHONE) {
+        val hasMic =
+          androidx.core.content.ContextCompat.checkSelfPermission(
+            context,
+            android.Manifest.permission.RECORD_AUDIO,
+          ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (hasMic) {
+          val serviceIntent =
+            android.content.Intent(
+              context,
+              com.livetranslator.app.service.TranslationForegroundService::class.java,
+            ).apply {
+              action =
+                com.livetranslator.app.service.TranslationForegroundService.ACTION_START_MIC_ONLY
+            }
+          androidx.core.content.ContextCompat.startForegroundService(context, serviceIntent)
+          (context as? android.app.Activity)?.moveTaskToBack(true)
+        } else {
+          overlayMicLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+        }
+      } else {
+        val mgr =
+          context.getSystemService(android.content.Context.MEDIA_PROJECTION_SERVICE)
+            as android.media.projection.MediaProjectionManager
+        overlayProjectionLauncher.launch(mgr.createScreenCaptureIntent())
+      }
+    }
+  }
 
   LaunchedEffect(currentRoute) {
     focusManager.clearFocus(force = true)

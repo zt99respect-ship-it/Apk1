@@ -10,8 +10,12 @@ import kotlinx.coroutines.flow.update
 data class TranslationSessionState(
   val isRunning: Boolean = false,
   val isTranslating: Boolean = false,
+  val isLivePartial: Boolean = false,
   val isOverlayActive: Boolean = false,
-  val isCardExpanded: Boolean = false,
+  val isControlPanelOpen: Boolean = false,
+  val isSubtitleVisible: Boolean = true,
+  val isRepositioningSubtitle: Boolean = false,
+  val pendingStartRequestId: Long = 0L,
   val bubbleSnoozedUntilMs: Long = 0L,
   val statusMessage: String = "الخدمة الفورية جاهزة • بدون قيود",
   val engineMode: String = "خامل",
@@ -59,6 +63,7 @@ class TranslationSessionManager {
     _state.update {
       it.copy(
         isRunning = running,
+        isLivePartial = if (running) it.isLivePartial else false,
         statusMessage = status,
         engineMode = mode,
         audioLevel = if (running) it.audioLevel else 0f,
@@ -67,6 +72,7 @@ class TranslationSessionManager {
         activeSessionId = if (running) (sessionId ?: it.activeSessionId) else null,
         lastPartialSource = if (running) "" else it.lastPartialSource,
         lastError = if (running) null else it.lastError,
+        isSubtitleVisible = if (running) true else it.isSubtitleVisible,
       )
     }
   }
@@ -88,23 +94,76 @@ class TranslationSessionManager {
     }
   }
 
+  /**
+   * Publishes real-time Arabic translation directly from partial speech recognition
+   * so subtitles appear instantaneously while the speaker is still talking.
+   */
+  fun publishLivePartialTranslation(
+    partialSource: String,
+    liveArabicText: String,
+    sourceLang: String,
+  ) {
+    _state.update {
+      it.copy(
+        isTranslating = false,
+        isLivePartial = true,
+        lastPartialSource = partialSource,
+        lastTranslatedText = liveArabicText,
+        lastSourceLang = sourceLang,
+        lastTimestampMs = System.currentTimeMillis(),
+        lastError = null,
+      )
+    }
+  }
+
   fun updateTranslating(translating: Boolean) {
     _state.update { it.copy(isTranslating = translating) }
   }
 
   fun updateOverlayActive(active: Boolean) {
-    _state.update { it.copy(isOverlayActive = active) }
+    _state.update {
+      it.copy(
+        isOverlayActive = active,
+        isControlPanelOpen = if (!active) false else it.isControlPanelOpen,
+        isRepositioningSubtitle = if (!active) false else it.isRepositioningSubtitle,
+      )
+    }
   }
 
-  fun setCardExpanded(expanded: Boolean) {
-    _state.update { it.copy(isCardExpanded = expanded) }
+  fun setControlPanelOpen(open: Boolean) {
+    _state.update { it.copy(isControlPanelOpen = open) }
+  }
+
+  fun toggleControlPanel() {
+    _state.update { it.copy(isControlPanelOpen = !it.isControlPanelOpen) }
+  }
+
+  fun setSubtitleVisible(visible: Boolean) {
+    _state.update { it.copy(isSubtitleVisible = visible) }
+  }
+
+  fun setRepositioningSubtitle(repositioning: Boolean) {
+    _state.update {
+      it.copy(
+        isRepositioningSubtitle = repositioning,
+        isSubtitleVisible = if (repositioning) true else it.isSubtitleVisible,
+      )
+    }
+  }
+
+  fun requestStartFromOverlay() {
+    _state.update { it.copy(pendingStartRequestId = System.nanoTime()) }
+  }
+
+  fun clearPendingStartRequest() {
+    _state.update { it.copy(pendingStartRequestId = 0L) }
   }
 
   fun snoozeBubbleFor(durationMs: Long) {
     _state.update {
       it.copy(
         bubbleSnoozedUntilMs = System.currentTimeMillis() + durationMs,
-        isCardExpanded = false,
+        isControlPanelOpen = false,
       )
     }
   }
@@ -122,6 +181,7 @@ class TranslationSessionManager {
     _state.update {
       it.copy(
         isTranslating = false,
+        isLivePartial = false,
         segmentsTranslated = it.segmentsTranslated + 1,
         lastPartialSource = "",
         lastSourceText = sourceText,
@@ -129,7 +189,6 @@ class TranslationSessionManager {
         lastSourceLang = sourceLang,
         lastTimestampMs = timestampMs,
         lastError = null,
-        isCardExpanded = true,
       )
     }
   }
@@ -143,13 +202,13 @@ class TranslationSessionManager {
     }
   }
 
-  fun publishError(error: String, expandOverlay: Boolean = true) {
+  fun publishError(error: String, expandOverlay: Boolean = false) {
     _state.update {
       it.copy(
         isTranslating = false,
         lastError = error,
         statusMessage = "تنبيه في خدمة الترجمة",
-        isCardExpanded = if (expandOverlay && it.isOverlayActive) true else it.isCardExpanded,
+        isControlPanelOpen = if (expandOverlay && it.isOverlayActive) true else it.isControlPanelOpen,
       )
     }
   }

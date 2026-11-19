@@ -312,4 +312,6 @@ data class UserSettings(
   val overlayBoxColorArgb: Long = 0xFF09090B,
   val overlayBoxOpacity: Float = 0.86f,
   val overlayCornerRadiusDp: Float = 22f,
+  val overlayCustomX: Int = -1,
+  val overlayCustomY: Int = -1,
 )

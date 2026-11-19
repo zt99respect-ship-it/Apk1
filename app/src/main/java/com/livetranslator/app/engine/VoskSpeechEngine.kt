@@ -22,6 +22,7 @@ class VoskSpeechEngine {
   private var model: Model? = null
   private var recognizer: Recognizer? = null
   private var loadedModelPath: String? = null
+  private var lastEmittedPartial: String = ""
 
   suspend fun loadModel(modelDir: File) =
     mutex.withLock {
@@ -37,6 +38,7 @@ class VoskSpeechEngine {
         model = loadedModel
         recognizer = loadedRecognizer
         loadedModelPath = targetPath
+        lastEmittedPartial = ""
       }
     }
 
@@ -47,6 +49,7 @@ class VoskSpeechEngine {
 
       val hasFinalSentence = rec.acceptWaveForm(pcmBytes, length)
       if (hasFinalSentence) {
+        lastEmittedPartial = ""
         val finalText = parseFinalText(rec.result)
         if (finalText.isNotBlank()) {
           VoskRecognitionOutput(text = finalText, isFinal = true)
@@ -55,7 +58,8 @@ class VoskSpeechEngine {
         }
       } else {
         val partialText = parsePartialText(rec.partialResult)
-        if (partialText.isNotBlank()) {
+        if (partialText.isNotBlank() && partialText != lastEmittedPartial) {
+          lastEmittedPartial = partialText
           VoskRecognitionOutput(text = partialText, isFinal = false)
         } else {
           null
@@ -66,7 +70,13 @@ class VoskSpeechEngine {
   suspend fun flushFinalText(): String =
     mutex.withLock {
       val rec = recognizer ?: return@withLock ""
+      lastEmittedPartial = ""
       parseFinalText(rec.finalResult)
+    }
+
+  suspend fun resetPartialState() =
+    mutex.withLock {
+      lastEmittedPartial = ""
     }
 
   suspend fun release() =
@@ -80,6 +90,7 @@ class VoskSpeechEngine {
     recognizer = null
     model = null
     loadedModelPath = null
+    lastEmittedPartial = ""
   }
 
   companion object {

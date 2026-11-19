@@ -231,7 +231,7 @@ fun TranslationStyleScreen(
                     action = OverlayService.ACTION_SHOW_ACTIVE
                   }
                 ContextCompat.startForegroundService(context, intent)
-                sessionManager.setCardExpanded(true)
+                sessionManager.setRepositioningSubtitle(true)
               }
             }
             .padding(horizontal = 14.dp, vertical = 12.dp),
@@ -247,8 +247,8 @@ fun TranslationStyleScreen(
         Spacer(modifier = Modifier.width(10.dp))
         Text(
           text =
-            if (overlayActive) "الصندوق العائم مفعّل — اضغط هنا لمعاينته الآن فوق الشاشة"
-            else "الصندوق العائم غير مفعّل الآن — اضغط لتشغيله ومعاينة الشكل",
+            if (overlayActive) "الصندوق العائم مفعّل — اضغط لتفعيل وضع تحريك المكان على الشاشة"
+            else "العلامة المائية غير مفعّلة — اضغط لتشغيلها وتحديد مكان الصندوق",
           color = CrispWhite,
           style = MaterialTheme.typography.bodyMedium,
         )

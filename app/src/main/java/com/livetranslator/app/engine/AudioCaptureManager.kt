@@ -12,6 +12,7 @@ import android.media.MediaRecorder
 import android.media.projection.MediaProjection
 import android.os.Build
 import androidx.core.content.ContextCompat
+import kotlin.math.abs
 import kotlin.math.sqrt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -29,11 +30,11 @@ class AudioCaptureManager(private val context: Context) {
     scope: CoroutineScope,
     mediaProjection: MediaProjection?,
     preferSystemPlayback: Boolean = true,
-    chunkSecondsProvider: () -> Int,
+    maxSpeechWindowSecondsProvider: () -> Int,
     onModeChanged: (String) -> Unit,
     onAudioLevel: (Float) -> Unit,
-    onPcmFrame: suspend (ByteArray, Int) -> Unit,
-    onChunkWindowElapsed: suspend () -> Unit,
+    onPcmFrame: (ByteArray, Int) -> Unit,
+    onNaturalPauseFlush: () -> Unit,
     onError: (String) -> Unit,
   ) {
     stop()
@@ -46,7 +47,8 @@ class AudioCaptureManager(private val context: Context) {
             AudioFormat.CHANNEL_IN_MONO,
             AudioFormat.ENCODING_PCM_16BIT,
           )
-        val bufferSize = maxOf(minBuffer * 2, sampleRate * 2)
+        // Small low-latency buffer (~250ms or minBuffer*2) so audio arrives immediately without overrun
+        val bufferSize = maxOf(minBuffer * 2, (sampleRate * 2) / 4)
 
         val record =
           if (preferSystemPlayback) {
@@ -76,27 +78,58 @@ class AudioCaptureManager(private val context: Context) {
         audioRecord = record
         try {
           record.startRecording()
-          val readBuffer = ByteArray(4096)
-          var bytesSinceWindowFlush = 0
+          // 64ms PCM16 mono frames at 16kHz (1024 samples = 2048 bytes) for millisecond responsiveness
+          val readBuffer = ByteArray(FRAME_BYTES)
+          var agcGain = 1.0
+          var hadSpeechInUtterance = false
+          var silenceStartMs = 0L
+          var utteranceStartMs = System.currentTimeMillis()
           var lastMeterUpdateMs = 0L
 
           while (isActive) {
-            val targetWindowBytes = (chunkSecondsProvider().coerceIn(2, 15)) * SAMPLE_RATE_HZ * 2
             val read = record.read(readBuffer, 0, readBuffer.size)
             if (read > 0) {
+              val frame = readBuffer.copyOf(read)
+              val rawRms = computePcm16Rms(frame, read)
+
+              // Adaptive smooth AGC & DC offset cleanup for accurate STT on quiet or loud media
+              agcGain = conditionPcm16InPlace(frame, read, rawRms, agcGain)
+
               val now = System.currentTimeMillis()
-              if (now - lastMeterUpdateMs >= 120L) {
+              if (now - lastMeterUpdateMs >= 80L) {
                 lastMeterUpdateMs = now
-                val frameRms = computePcm16Rms(readBuffer, read)
-                val normalized = (frameRms / 2200.0).toFloat().coerceIn(0f, 1f)
+                val normalized = (rawRms / 1800.0).toFloat().coerceIn(0f, 1f)
                 onAudioLevel(normalized)
               }
 
-              onPcmFrame(readBuffer.copyOf(read), read)
-              bytesSinceWindowFlush += read
-              if (bytesSinceWindowFlush >= targetWindowBytes) {
-                bytesSinceWindowFlush = 0
-                onChunkWindowElapsed()
+              // Dispatch immediately without suspending so hardware AudioRecord never stalls
+              onPcmFrame(frame, read)
+
+              // Natural pause VAD tracking to avoid mid-word chopping
+              val isSpeechFrame = rawRms >= SPEECH_RMS_THRESHOLD
+              if (isSpeechFrame) {
+                if (!hadSpeechInUtterance) {
+                  utteranceStartMs = now
+                }
+                hadSpeechInUtterance = true
+                silenceStartMs = 0L
+              } else if (hadSpeechInUtterance) {
+                if (silenceStartMs == 0L) {
+                  silenceStartMs = now
+                } else if (now - silenceStartMs >= NATURAL_PAUSE_MS) {
+                  hadSpeechInUtterance = false
+                  silenceStartMs = 0L
+                  utteranceStartMs = now
+                  onNaturalPauseFlush()
+                }
+              }
+
+              val maxWindowMs = (maxSpeechWindowSecondsProvider().coerceIn(4, 12)) * 1000L
+              if (hadSpeechInUtterance && now - utteranceStartMs >= maxWindowMs) {
+                hadSpeechInUtterance = false
+                silenceStartMs = 0L
+                utteranceStartMs = now
+                onNaturalPauseFlush()
               }
             } else if (read < 0) {
               onError("خطأ في قراءة الصوت ($read)")
@@ -160,7 +193,7 @@ class AudioCaptureManager(private val context: Context) {
 
     return runCatching {
         AudioRecord(
-          MediaRecorder.AudioSource.MIC,
+          MediaRecorder.AudioSource.VOICE_RECOGNITION,
           SAMPLE_RATE_HZ,
           AudioFormat.CHANNEL_IN_MONO,
           AudioFormat.ENCODING_PCM_16BIT,
@@ -169,6 +202,17 @@ class AudioCaptureManager(private val context: Context) {
       }
       .getOrNull()
       ?.takeIf { it.state == AudioRecord.STATE_INITIALIZED }
+      ?: runCatching {
+          AudioRecord(
+            MediaRecorder.AudioSource.MIC,
+            SAMPLE_RATE_HZ,
+            AudioFormat.CHANNEL_IN_MONO,
+            AudioFormat.ENCODING_PCM_16BIT,
+            bufferSize,
+          )
+        }
+        .getOrNull()
+        ?.takeIf { it.state == AudioRecord.STATE_INITIALIZED }
   }
 
   fun stop() {
@@ -181,6 +225,9 @@ class AudioCaptureManager(private val context: Context) {
 
   companion object {
     const val SAMPLE_RATE_HZ = 16_000
+    private const val FRAME_BYTES = 2048 // 64ms @ 16kHz 16-bit mono
+    private const val SPEECH_RMS_THRESHOLD = 140.0
+    private const val NATURAL_PAUSE_MS = 450L
 
     fun computePcm16Rms(pcmBytes: ByteArray, length: Int = pcmBytes.size): Double {
       val safeLength = length.coerceAtMost(pcmBytes.size)
@@ -196,6 +243,61 @@ class AudioCaptureManager(private val context: Context) {
         i += 2
       }
       return sqrt(sumSquares / sampleCount)
+    }
+
+    /**
+     * Removes DC offset and applies gentle Automatic Gain Control + soft limiting in place,
+     * improving STT recognition on quiet streams without clipping loud speech.
+     */
+    internal fun conditionPcm16InPlace(
+      pcmBytes: ByteArray,
+      length: Int,
+      rawRms: Double,
+      previousGain: Double,
+    ): Double {
+      val safeLength = length.coerceAtMost(pcmBytes.size)
+      val sampleCount = safeLength / 2
+      if (sampleCount <= 0) return previousGain
+
+      // Target ~3400 RMS for active speech, cap boost at 4.0x to avoid amplifying pure noise floor
+      val targetGain =
+        if (rawRms > 80.0) {
+          (3400.0 / rawRms).coerceIn(0.65, 4.0)
+        } else {
+          1.0
+        }
+      val smoothedGain = (previousGain * 0.72) + (targetGain * 0.28)
+
+      // Compute frame DC mean
+      var sum = 0L
+      var i = 0
+      while (i + 1 < safeLength) {
+        val sample = ((pcmBytes[i + 1].toInt() shl 8) or (pcmBytes[i].toInt() and 0xFF))
+        sum += sample
+        i += 2
+      }
+      val mean = (sum / sampleCount).toInt()
+
+      if (abs(mean) < 12 && abs(smoothedGain - 1.0) < 0.08) {
+        return smoothedGain
+      }
+
+      i = 0
+      while (i + 1 < safeLength) {
+        val sample = ((pcmBytes[i + 1].toInt() shl 8) or (pcmBytes[i].toInt() and 0xFF)) - mean
+        var scaled = (sample * smoothedGain).toInt()
+        // Soft knee limiter near 16-bit bounds
+        if (scaled > 28000) {
+          scaled = 28000 + ((scaled - 28000) / 4)
+        } else if (scaled < -28000) {
+          scaled = -28000 + ((scaled + 28000) / 4)
+        }
+        val clamped = scaled.coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
+        pcmBytes[i] = (clamped and 0xFF).toByte()
+        pcmBytes[i + 1] = ((clamped shr 8) and 0xFF).toByte()
+        i += 2
+      }
+      return smoothedGain
     }
   }
 }

@@ -212,6 +212,11 @@ class TranslationRepository(
   suspend fun setOverlayCornerRadiusDp(radiusDp: Float) =
     settingsDataStore.setOverlayCornerRadiusDp(radiusDp)
 
+  suspend fun setOverlayCustomPosition(x: Int, y: Int) =
+    settingsDataStore.setOverlayCustomPosition(x, y)
+
+  suspend fun resetOverlayCustomPosition() = settingsDataStore.resetOverlayCustomPosition()
+
   suspend fun resetStyleToDefaults() = settingsDataStore.resetStyleToDefaults()
 
   suspend fun resetAllSettings() = settingsDataStore.resetAllSettings()
