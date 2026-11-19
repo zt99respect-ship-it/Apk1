@@ -51,7 +51,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -59,11 +58,12 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import com.livetranslator.app.R
 import com.livetranslator.app.ui.theme.BrightAmethyst
+import com.livetranslator.app.ui.theme.CrispWhite
 import com.livetranslator.app.ui.theme.ElectricViolet
 import com.livetranslator.app.ui.theme.EmeraldAccent
+import com.livetranslator.app.ui.theme.GlassGradientPillButton
 import com.livetranslator.app.ui.theme.GlassSurfaceCard
-import com.livetranslator.app.ui.theme.LavenderWhite
-import com.livetranslator.app.ui.theme.MutedViolet
+import com.livetranslator.app.ui.theme.LightGrayText
 import com.livetranslator.app.ui.theme.SoftLavender
 import com.livetranslator.app.ui.theme.VoidSurfaceVariant
 import com.livetranslator.app.ui.theme.homeRadialBackground
@@ -140,7 +140,7 @@ fun OnboardingScreen(onComplete: () -> Unit) {
         Text(
           text = "الإعداد الأولي (${pagerState.currentPage + 1}/3)",
           style = MaterialTheme.typography.labelLarge,
-          color = MutedViolet,
+          color = SoftLavender,
         )
         TextButton(
           onClick = onComplete,
@@ -160,12 +160,12 @@ fun OnboardingScreen(onComplete: () -> Unit) {
           0 ->
             OnboardingPageCard(
               iconRes = R.drawable.ic_bubble,
-              title = "النافذة العائمة فوق التطبيقات",
+              title = "العرض فوق التطبيقات",
               subtitle =
-                "اسمح للتطبيق بعرض الفقاعة البنفسجية القابلة للسحب وبطاقة الترجمة العربية فوق YouTube و Kick وأي تطبيق بث.",
+                "اسمح للتطبيق بعرض صندوق الترجمة الزجاجي والفقاعة العائمة فوق يوتيوب وباقي تطبيقات الهاتف.",
               isGranted = hasOverlayPermission,
               buttonLabel =
-                if (hasOverlayPermission) "تم تفعيل الظهور العائم" else "منح إذن الظهور فوق التطبيقات",
+                if (hasOverlayPermission) "تم تفعيل الظهور العائم" else "منح إذن العرض فوق التطبيقات",
               buttonTestTag = "grant_overlay_button",
               onAction = {
                 val intent =
@@ -178,14 +178,14 @@ fun OnboardingScreen(onComplete: () -> Unit) {
             )
           1 ->
             OnboardingPageCard(
-              iconRes = R.drawable.ic_mic,
-              title = "التقاط صوت البث والشاشة",
+              iconRes = R.drawable.ic_device_audio,
+              title = "التقاط صوت الهاتف",
               subtitle =
-                "اسمح بالتقاط صوت النظام (أندرويد 10+) لترجمة البثوث مباشرة، ويمكنك أيضاً منح إذن الميكروفون كبديل احتياطي.",
+                "اسمح بالتقاط صوت النظام لترجمة الفيديوهات والبثوث مباشرة إلى العربية بأي لغة صوتية.",
               isGranted = hasScreenCaptureChecked && hasMicPermission,
               buttonLabel =
-                if (hasScreenCaptureChecked) "التقاط الشاشة جاهز"
-                else "منح إذن التقاط الصوت والشاشة",
+                if (hasScreenCaptureChecked) "التقاط صوت الهاتف جاهز"
+                else "منح إذن التقاط صوت الهاتف",
               buttonTestTag = "grant_capture_button",
               secondaryLabel =
                 if (hasMicPermission) "تم منح إذن الميكروفون" else "منح إذن الميكروفون (اختياري)",
@@ -202,9 +202,9 @@ fun OnboardingScreen(onComplete: () -> Unit) {
           else ->
             OnboardingPageCard(
               iconRes = R.drawable.ic_info,
-              title = "إشعار التحكم الدائم",
+              title = "إشعار الخدمة المستمر",
               subtitle =
-                "اسمح بالإشعارات لإبقاء خدمة الترجمة الفورية مستقرة في الخلفية مع زر إيقاف سريع بضغطة واحدة.",
+                "اسمح بالإشعارات لإبقاء خدمة الترجمة الفورية مستقرة مع زر إيقاف فوري من شريط الإشعارات.",
               isGranted = hasNotificationPermission,
               buttonLabel =
                 if (hasNotificationPermission) "تم تفعيل الإشعارات" else "منح إذن الإشعارات",
@@ -240,7 +240,10 @@ fun OnboardingScreen(onComplete: () -> Unit) {
 
       Spacer(modifier = Modifier.height(20.dp))
 
-      Button(
+      GlassGradientPillButton(
+        text =
+          if (pagerState.currentPage < 2) stringResource(R.string.onboarding_next)
+          else stringResource(R.string.onboarding_finish),
         onClick = {
           if (pagerState.currentPage < 2) {
             scope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) }
@@ -248,22 +251,8 @@ fun OnboardingScreen(onComplete: () -> Unit) {
             onComplete()
           }
         },
-        modifier =
-          Modifier.fillMaxWidth()
-            .height(54.dp)
-            .testTag("onboarding_next_button"),
-        shape = RoundedCornerShape(16.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = ElectricViolet),
-      ) {
-        Text(
-          text =
-            if (pagerState.currentPage < 2) stringResource(R.string.onboarding_next)
-            else stringResource(R.string.onboarding_finish),
-          style = MaterialTheme.typography.titleMedium,
-          color = LavenderWhite,
-          fontWeight = FontWeight.Bold,
-        )
-      }
+        modifier = Modifier.testTag("onboarding_next_button"),
+      )
     }
   }
 }
@@ -282,7 +271,7 @@ private fun OnboardingPageCard(
 ) {
   GlassSurfaceCard(
     modifier = Modifier.fillMaxSize().padding(vertical = 8.dp),
-    cornerRadius = 20.dp,
+    cornerRadius = 24.dp,
   ) {
     Column(
       modifier = Modifier.fillMaxSize().padding(24.dp),
@@ -304,7 +293,7 @@ private fun OnboardingPageCard(
         Icon(
           painter = painterResource(id = iconRes),
           contentDescription = title,
-          tint = LavenderWhite,
+          tint = CrispWhite,
           modifier = Modifier.size(40.dp),
         )
       }
@@ -314,7 +303,7 @@ private fun OnboardingPageCard(
       Text(
         text = title,
         style = MaterialTheme.typography.headlineMedium,
-        color = LavenderWhite,
+        color = CrispWhite,
         textAlign = TextAlign.Center,
       )
 
@@ -323,7 +312,7 @@ private fun OnboardingPageCard(
       Text(
         text = subtitle,
         style = MaterialTheme.typography.bodyLarge,
-        color = MutedViolet,
+        color = LightGrayText,
         textAlign = TextAlign.Center,
       )
 
@@ -357,7 +346,7 @@ private fun OnboardingPageCard(
       Button(
         onClick = onAction,
         modifier = Modifier.fillMaxWidth().height(50.dp).testTag(buttonTestTag),
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(16.dp),
         colors =
           ButtonDefaults.buttonColors(
             containerColor = if (isGranted) VoidSurfaceVariant else ElectricViolet
@@ -365,7 +354,7 @@ private fun OnboardingPageCard(
       ) {
         Text(
           text = buttonLabel,
-          color = LavenderWhite,
+          color = CrispWhite,
           style = MaterialTheme.typography.labelLarge,
         )
       }
@@ -375,7 +364,7 @@ private fun OnboardingPageCard(
         OutlinedButton(
           onClick = onSecondaryAction,
           modifier = Modifier.fillMaxWidth().height(48.dp),
-          shape = RoundedCornerShape(14.dp),
+          shape = RoundedCornerShape(16.dp),
         ) {
           Text(text = secondaryLabel, color = SoftLavender)
         }

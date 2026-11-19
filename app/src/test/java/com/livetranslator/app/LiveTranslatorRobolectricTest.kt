@@ -6,6 +6,9 @@ import androidx.test.core.app.ApplicationProvider
 import com.livetranslator.app.data.local.db.LiveTranslatorDatabase
 import com.livetranslator.app.data.local.db.TranslationHistoryEntity
 import com.livetranslator.app.data.local.prefs.SettingsDataStore
+import com.livetranslator.app.data.model.ArabicFontOption
+import com.livetranslator.app.data.model.OverlayStylePreset
+import com.livetranslator.app.data.model.SupportedLanguages
 import com.livetranslator.app.data.repository.TranslationRepository
 import com.livetranslator.app.engine.DownloadHelper
 import java.io.File
@@ -35,7 +38,12 @@ class LiveTranslatorRobolectricTest {
   fun setup() {
     context = ApplicationProvider.getApplicationContext()
     database = Room.inMemoryDatabaseBuilder(context, LiveTranslatorDatabase::class.java).build()
-    repository = TranslationRepository(database.translationHistoryDao(), SettingsDataStore(context))
+    repository =
+      TranslationRepository(
+        historyDao = database.translationHistoryDao(),
+        sessionDao = database.translationSessionDao(),
+        settingsDataStore = SettingsDataStore(context),
+      )
   }
 
   @After
@@ -49,10 +57,37 @@ class LiveTranslatorRobolectricTest {
   }
 
   @Test
-  fun `fresh install defaults to English Vosk language and 4s chunks`() = runTest {
+  fun `fresh install defaults to flexible auto source language and Cairo font`() = runTest {
     val settings = repository.getCurrentSettings()
-    assertEquals("en", settings.sourceLanguageCode)
+    assertEquals(SupportedLanguages.AUTO_CODE, settings.sourceLanguageCode)
     assertEquals(4, settings.audioChunkSeconds)
+    assertEquals(ArabicFontOption.CAIRO, settings.overlayFont)
+    assertEquals(OverlayStylePreset.ORIGINAL, settings.overlayPreset)
+  }
+
+  @Test
+  fun `sessions can be created updated and cleared`() = runTest {
+    val sid =
+      repository.createSession(
+        startTimestamp = 1_000_000L,
+        sourceLang = "auto",
+        audioMode = "صوت النظام (الهاتف)",
+      )
+    repository.updateSessionProgress(
+      sessionId = sid,
+      endTimestamp = 1_060_000L,
+      durationSeconds = 60L,
+      translatedCount = 5,
+      sourceLang = "en",
+    )
+    val latest = repository.latestSessionFlow.first()
+    assertNotNull(latest)
+    assertEquals(60L, latest?.durationSeconds)
+    assertEquals(5, latest?.translatedCount)
+    assertEquals("en", latest?.sourceLang)
+
+    repository.clearAllSessionsAndHistory()
+    assertEquals(0, repository.allSessionsFlow.first().size)
   }
 
   @Test

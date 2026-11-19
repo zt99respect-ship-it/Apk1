@@ -36,13 +36,14 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.livetranslator.app.R
 import com.livetranslator.app.ui.theme.BrightAmethyst
+import com.livetranslator.app.ui.theme.CrispWhite
+import com.livetranslator.app.ui.theme.DeepViolet
 import com.livetranslator.app.ui.theme.ElectricViolet
-import com.livetranslator.app.ui.theme.LavenderWhite
-import com.livetranslator.app.ui.theme.MutedViolet
+import com.livetranslator.app.ui.theme.GlowingScreenTitle
+import com.livetranslator.app.ui.theme.LightGrayText
 import com.livetranslator.app.ui.theme.SoftLavender
 import com.livetranslator.app.ui.theme.homeRadialBackground
 import kotlinx.coroutines.delay
@@ -56,7 +57,7 @@ fun SplashScreen(onFinished: () -> Unit) {
   val ringScale by
     infinite.animateFloat(
       initialValue = 1f,
-      targetValue = 1.45f,
+      targetValue = 1.42f,
       animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
       label = "ringScale",
     )
@@ -84,7 +85,7 @@ fun SplashScreen(onFinished: () -> Unit) {
       Box(contentAlignment = Alignment.Center, modifier = Modifier.size(168.dp)) {
         Canvas(modifier = Modifier.size(168.dp)) {
           drawCircle(
-            color = ElectricViolet.copy(alpha = 0.25f),
+            color = ElectricViolet.copy(alpha = 0.28f),
             radius = (size.minDimension / 2f) * (ringScale * 0.86f),
             style = Stroke(width = 2.dp.toPx()),
           )
@@ -100,14 +101,14 @@ fun SplashScreen(onFinished: () -> Unit) {
             Modifier.size(104.dp)
               .scale(logoScale.value)
               .clip(CircleShape)
-              .background(Brush.linearGradient(listOf(ElectricViolet, BrightAmethyst)))
+              .background(Brush.linearGradient(listOf(BrightAmethyst, ElectricViolet, DeepViolet)))
               .border(1.5.dp, SoftLavender.copy(alpha = 0.8f), CircleShape),
           contentAlignment = Alignment.Center,
         ) {
           Icon(
             painter = painterResource(id = R.drawable.ic_translate),
             contentDescription = stringResource(R.string.app_name),
-            tint = LavenderWhite,
+            tint = CrispWhite,
             modifier = Modifier.size(48.dp),
           )
         }
@@ -115,19 +116,14 @@ fun SplashScreen(onFinished: () -> Unit) {
 
       Spacer(modifier = Modifier.height(24.dp))
 
-      Text(
-        text = stringResource(R.string.app_name),
-        style = MaterialTheme.typography.displaySmall,
-        color = LavenderWhite,
-        fontWeight = FontWeight.Bold,
-      )
+      GlowingScreenTitle(text = stringResource(R.string.app_name), fontSizeSp = 32)
 
-      Spacer(modifier = Modifier.height(6.dp))
+      Spacer(modifier = Modifier.height(8.dp))
 
       Text(
-        text = "ترجمة فورية للصوت والبثوث",
+        text = stringResource(R.string.app_subtitle),
         style = MaterialTheme.typography.titleMedium,
-        color = MutedViolet,
+        color = LightGrayText,
       )
     }
   }

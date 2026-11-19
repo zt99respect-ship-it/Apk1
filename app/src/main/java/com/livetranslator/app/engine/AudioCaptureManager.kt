@@ -28,6 +28,7 @@ class AudioCaptureManager(private val context: Context) {
   fun startPcmStream(
     scope: CoroutineScope,
     mediaProjection: MediaProjection?,
+    preferSystemPlayback: Boolean = true,
     chunkSecondsProvider: () -> Int,
     onModeChanged: (String) -> Unit,
     onAudioLevel: (Float) -> Unit,
@@ -48,17 +49,26 @@ class AudioCaptureManager(private val context: Context) {
         val bufferSize = maxOf(minBuffer * 2, sampleRate * 2)
 
         val record =
-          createPlaybackAudioRecord(mediaProjection, bufferSize)?.also {
-            onModeChanged("صوت النظام 16kHz (Vosk)")
-          }
-            ?: createMicAudioRecord(bufferSize)?.also {
-              onModeChanged("الميكروفون 16kHz (Vosk)")
+          if (preferSystemPlayback) {
+            createPlaybackAudioRecord(mediaProjection, bufferSize)?.also {
+              onModeChanged("صوت النظام 16kHz")
             }
+              ?: createMicAudioRecord(bufferSize)?.also {
+                onModeChanged("الميكروفون 16kHz")
+              }
+          } else {
+            createMicAudioRecord(bufferSize)?.also {
+              onModeChanged("الميكروفون 16kHz")
+            }
+              ?: createPlaybackAudioRecord(mediaProjection, bufferSize)?.also {
+                onModeChanged("صوت النظام 16kHz")
+              }
+          }
 
         if (record == null || record.state != AudioRecord.STATE_INITIALIZED) {
           record?.release()
           onError(
-            "تعذر تهيئة مسجل الصوت. تأكد من منح إذن التقاط الشاشة (أندرويد 10+) أو إذن الميكروفون."
+            "تعذر تهيئة التقاط الصوت. تأكد من منح إذن التقاط صوت الهاتف أو إذن الميكروفون."
           )
           return@launch
         }

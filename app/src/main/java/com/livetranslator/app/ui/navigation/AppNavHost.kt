@@ -1,29 +1,45 @@
 package com.livetranslator.app.ui.navigation
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalTextToolbar
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -33,27 +49,30 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.livetranslator.app.LiveTranslatorApp
 import com.livetranslator.app.R
-import com.livetranslator.app.ui.screens.AboutScreen
-import com.livetranslator.app.ui.screens.HistoryScreen
+import com.livetranslator.app.ui.screens.AccountScreen
+import com.livetranslator.app.ui.screens.DevicesScreen
 import com.livetranslator.app.ui.screens.HomeScreen
 import com.livetranslator.app.ui.screens.OnboardingScreen
-import com.livetranslator.app.ui.screens.OverlaySettingsScreen
 import com.livetranslator.app.ui.screens.SettingsScreen
 import com.livetranslator.app.ui.screens.SplashScreen
+import com.livetranslator.app.ui.screens.SummaryScreen
+import com.livetranslator.app.ui.screens.TranslationStyleScreen
+import com.livetranslator.app.ui.theme.ArabicFontRegistry
+import com.livetranslator.app.ui.theme.CrispWhite
 import com.livetranslator.app.ui.theme.ElectricViolet
-import com.livetranslator.app.ui.theme.LavenderWhite
-import com.livetranslator.app.ui.theme.MutedViolet
-import com.livetranslator.app.ui.theme.VioletOutline
+import com.livetranslator.app.ui.theme.GlassCardFillStrong
+import com.livetranslator.app.ui.theme.LightGrayText
+import com.livetranslator.app.ui.theme.SoftLavender
 import com.livetranslator.app.ui.theme.VoidBackground
-import com.livetranslator.app.ui.theme.VoidSurface
-import com.livetranslator.app.ui.theme.VoidSurfaceVariant
-import com.livetranslator.app.ui.viewmodel.HistoryViewModel
+import com.livetranslator.app.ui.theme.homeRadialBackground
+import com.livetranslator.app.ui.viewmodel.AccountViewModel
+import com.livetranslator.app.ui.viewmodel.DevicesViewModel
 import com.livetranslator.app.ui.viewmodel.LiveTranslatorViewModelFactory
 import com.livetranslator.app.ui.viewmodel.MainViewModel
-import com.livetranslator.app.ui.viewmodel.OverlaySettingsViewModel
-import com.livetranslator.app.ui.viewmodel.SettingsViewModel
+import com.livetranslator.app.ui.viewmodel.OverlayStyleViewModel
+import com.livetranslator.app.ui.viewmodel.SummaryViewModel
 
-private data class BottomTab(
+private data class FloatingTab(
   val route: String,
   val labelRes: Int,
   val iconRes: Int,
@@ -64,9 +83,10 @@ private data class BottomTab(
 fun AppNavHost(app: LiveTranslatorApp) {
   val factory = LiveTranslatorViewModelFactory(app)
   val mainViewModel: MainViewModel = viewModel(factory = factory)
-  val overlaySettingsViewModel: OverlaySettingsViewModel = viewModel(factory = factory)
-  val historyViewModel: HistoryViewModel = viewModel(factory = factory)
-  val settingsViewModel: SettingsViewModel = viewModel(factory = factory)
+  val overlayStyleViewModel: OverlayStyleViewModel = viewModel(factory = factory)
+  val summaryViewModel: SummaryViewModel = viewModel(factory = factory)
+  val devicesViewModel: DevicesViewModel = viewModel(factory = factory)
+  val accountViewModel: AccountViewModel = viewModel(factory = factory)
 
   val settings by mainViewModel.settings.collectAsStateWithLifecycle()
   val navController = rememberNavController()
@@ -82,119 +102,208 @@ fun AppNavHost(app: LiveTranslatorApp) {
 
   val tabs =
     listOf(
-      BottomTab(Routes.HOME, R.string.nav_home, R.drawable.ic_translate, "nav_home"),
-      BottomTab(
-        Routes.OVERLAY_SETTINGS,
-        R.string.nav_overlay,
-        R.drawable.ic_bubble,
-        "nav_overlay",
-      ),
-      BottomTab(Routes.HISTORY, R.string.nav_history, R.drawable.ic_history, "nav_history"),
-      BottomTab(Routes.SETTINGS, R.string.nav_settings, R.drawable.ic_settings, "nav_settings"),
+      FloatingTab(Routes.HOME, R.string.nav_home, R.drawable.ic_home, "nav_home"),
+      FloatingTab(Routes.SUMMARY, R.string.nav_summary, R.drawable.ic_summary, "nav_summary"),
+      FloatingTab(Routes.DEVICES, R.string.nav_devices, R.drawable.ic_device_audio, "nav_devices"),
+      FloatingTab(Routes.ACCOUNT, R.string.nav_account, R.drawable.ic_person, "nav_account"),
     )
 
   val showBottomBar = currentRoute in tabs.map { it.route }
 
-  Scaffold(
-    containerColor = VoidBackground,
-    contentWindowInsets = WindowInsets.statusBars,
-    bottomBar = {
-      if (showBottomBar) {
-        NavigationBar(
-          containerColor = VoidSurface,
-          contentColor = LavenderWhite,
-          windowInsets = WindowInsets.navigationBars,
-          modifier = Modifier.border(1.dp, VioletOutline),
-        ) {
-          tabs.forEach { tab ->
-            val selected = currentRoute == tab.route
-            NavigationBarItem(
-              selected = selected,
-              onClick = {
-                navController.navigate(tab.route) {
-                  popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                  launchSingleTop = true
-                  restoreState = true
+  fun navigateToTab(route: String) {
+    navController.navigate(route) {
+      popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+      launchSingleTop = true
+      restoreState = true
+    }
+  }
+
+  Box(modifier = Modifier.fillMaxSize().homeRadialBackground()) {
+    Scaffold(
+      containerColor = Color.Transparent,
+      contentWindowInsets = WindowInsets.statusBars,
+      bottomBar = {
+        if (showBottomBar) {
+          FloatingGlassBottomBar(
+            tabs = tabs,
+            currentRoute = currentRoute,
+            onSelectTab = { navigateToTab(it) },
+          )
+        }
+      },
+    ) { innerPadding ->
+      Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+        NavHost(navController = navController, startDestination = Routes.SPLASH) {
+          composable(Routes.SPLASH) {
+            SplashScreen(
+              onFinished = {
+                val dest = if (settings.onboardingCompleted) Routes.HOME else Routes.ONBOARDING
+                navController.navigate(dest) {
+                  popUpTo(Routes.SPLASH) { inclusive = true }
                 }
-              },
-              modifier = Modifier.testTag(tab.testTag),
-              icon = {
-                Icon(
-                  painter = painterResource(id = tab.iconRes),
-                  contentDescription = stringResource(tab.labelRes),
-                  modifier = Modifier.size(22.dp),
-                )
-              },
-              label = { Text(text = stringResource(tab.labelRes)) },
-              colors =
-                NavigationBarItemDefaults.colors(
-                  selectedIconColor = LavenderWhite,
-                  selectedTextColor = LavenderWhite,
-                  indicatorColor = ElectricViolet.copy(alpha = 0.28f),
-                  unselectedIconColor = MutedViolet,
-                  unselectedTextColor = MutedViolet,
-                ),
+              }
+            )
+          }
+
+          composable(Routes.ONBOARDING) {
+            OnboardingScreen(
+              onComplete = {
+                mainViewModel.completeOnboarding()
+                navController.navigate(Routes.HOME) {
+                  popUpTo(Routes.ONBOARDING) { inclusive = true }
+                }
+              }
+            )
+          }
+
+          composable(Routes.HOME) {
+            HomeScreen(
+              viewModel = mainViewModel,
+              onNavigateToDevices = { navigateToTab(Routes.DEVICES) },
+              onNavigateToAccount = { navigateToTab(Routes.ACCOUNT) },
+              onNavigateToStyle = { navController.navigate(Routes.TRANSLATION_STYLE) },
+            )
+          }
+
+          composable(Routes.SUMMARY) {
+            SummaryScreen(
+              viewModel = summaryViewModel,
+              mainViewModel = mainViewModel,
+              onNavigateToHome = { navigateToTab(Routes.HOME) },
+            )
+          }
+
+          composable(Routes.DEVICES) {
+            DevicesScreen(viewModel = devicesViewModel)
+          }
+
+          composable(Routes.ACCOUNT) {
+            AccountScreen(
+              viewModel = accountViewModel,
+              onNavigateToDevices = { navigateToTab(Routes.DEVICES) },
+              onNavigateToTranslationStyle = { navController.navigate(Routes.TRANSLATION_STYLE) },
+              onNavigateToSettings = { navController.navigate(Routes.SETTINGS) },
+            )
+          }
+
+          composable(Routes.TRANSLATION_STYLE) {
+            TranslationStyleScreen(
+              viewModel = overlayStyleViewModel,
+              sessionManager = app.sessionManager,
+              onBack = { navController.popBackStack() },
+            )
+          }
+
+          composable(Routes.SETTINGS) {
+            SettingsScreen(
+              viewModel = accountViewModel,
+              onNavigateToTranslationStyle = { navController.navigate(Routes.TRANSLATION_STYLE) },
+              onBack = { navController.popBackStack() },
             )
           }
         }
       }
-    },
-  ) { innerPadding ->
-    Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
-      NavHost(navController = navController, startDestination = Routes.SPLASH) {
-        composable(Routes.SPLASH) {
-          SplashScreen(
-            onFinished = {
-              val dest = if (settings.onboardingCompleted) Routes.HOME else Routes.ONBOARDING
-              navController.navigate(dest) {
-                popUpTo(Routes.SPLASH) { inclusive = true }
-              }
-            }
+    }
+  }
+}
+
+@Composable
+private fun FloatingGlassBottomBar(
+  tabs: List<FloatingTab>,
+  currentRoute: String?,
+  onSelectTab: (String) -> Unit,
+) {
+  Box(
+    modifier =
+      Modifier.fillMaxWidth()
+        .navigationBarsPadding()
+        .padding(horizontal = 20.dp, vertical = 12.dp),
+    contentAlignment = Alignment.Center,
+  ) {
+    Row(
+      modifier =
+        Modifier.widthIn(max = 520.dp)
+          .fillMaxWidth()
+          .height(72.dp)
+          .shadow(
+            elevation = 20.dp,
+            shape = RoundedCornerShape(36.dp),
+            ambientColor = ElectricViolet.copy(alpha = 0.45f),
+            spotColor = VoidBackground,
           )
-        }
-
-        composable(Routes.ONBOARDING) {
-          OnboardingScreen(
-            onComplete = {
-              mainViewModel.completeOnboarding()
-              navController.navigate(Routes.HOME) {
-                popUpTo(Routes.ONBOARDING) { inclusive = true }
-              }
-            }
+          .clip(RoundedCornerShape(36.dp))
+          .background(GlassCardFillStrong)
+          .border(
+            width = 1.dp,
+            brush =
+              Brush.linearGradient(
+                listOf(
+                  CrispWhite.copy(alpha = 0.28f),
+                  ElectricViolet.copy(alpha = 0.42f),
+                  CrispWhite.copy(alpha = 0.14f),
+                )
+              ),
+            shape = RoundedCornerShape(36.dp),
           )
-        }
-
-        composable(Routes.HOME) {
-          HomeScreen(
-            viewModel = mainViewModel,
-            onNavigateToSettings = {
-              navController.navigate(Routes.SETTINGS) {
-                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                launchSingleTop = true
-                restoreState = true
-              }
-            },
-            onNavigateToAbout = { navController.navigate(Routes.ABOUT) },
-          )
-        }
-
-        composable(Routes.OVERLAY_SETTINGS) {
-          OverlaySettingsScreen(viewModel = overlaySettingsViewModel)
-        }
-
-        composable(Routes.HISTORY) {
-          HistoryScreen(viewModel = historyViewModel)
-        }
-
-        composable(Routes.SETTINGS) {
-          SettingsScreen(
-            viewModel = settingsViewModel,
-            onNavigateToAbout = { navController.navigate(Routes.ABOUT) },
-          )
-        }
-
-        composable(Routes.ABOUT) {
-          AboutScreen(onBack = { navController.popBackStack() })
+          .padding(horizontal = 8.dp, vertical = 6.dp),
+      horizontalArrangement = Arrangement.SpaceEvenly,
+      verticalAlignment = Alignment.CenterVertically,
+    ) {
+      tabs.forEach { tab ->
+        val selected = currentRoute == tab.route
+        val interactionSource = remember { MutableInteractionSource() }
+        Box(
+          modifier =
+            Modifier.weight(1f)
+              .height(60.dp)
+              .clip(RoundedCornerShape(30.dp))
+              .then(
+                if (selected) {
+                  Modifier.background(
+                    Brush.verticalGradient(
+                      listOf(
+                        ElectricViolet.copy(alpha = 0.34f),
+                        ElectricViolet.copy(alpha = 0.16f),
+                      )
+                    )
+                  )
+                    .border(
+                      1.dp,
+                      ElectricViolet.copy(alpha = 0.45f),
+                      RoundedCornerShape(30.dp),
+                    )
+                } else {
+                  Modifier
+                }
+              )
+              .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = { onSelectTab(tab.route) },
+              )
+              .testTag(tab.testTag),
+          contentAlignment = Alignment.Center,
+        ) {
+          Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+          ) {
+            Icon(
+              painter = painterResource(id = tab.iconRes),
+              contentDescription = stringResource(tab.labelRes),
+              tint = if (selected) SoftLavender else LightGrayText.copy(alpha = 0.72f),
+              modifier = Modifier.size(22.dp),
+            )
+            Spacer(modifier = Modifier.height(3.dp))
+            Text(
+              text = stringResource(tab.labelRes),
+              color = if (selected) CrispWhite else LightGrayText.copy(alpha = 0.75f),
+              fontFamily = ArabicFontRegistry.CairoFontFamily,
+              fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+              fontSize = 11.sp,
+              maxLines = 1,
+            )
+          }
         }
       }
     }

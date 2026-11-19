@@ -1,6 +1,8 @@
 package com.livetranslator.app.engine
 
 import com.google.mlkit.common.model.DownloadConditions
+import com.google.mlkit.nl.languageid.LanguageIdentification
+import com.google.mlkit.nl.languageid.LanguageIdentifier
 import com.google.mlkit.nl.translate.TranslateLanguage
 import com.google.mlkit.nl.translate.Translation
 import com.google.mlkit.nl.translate.Translator
@@ -11,56 +13,88 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
+data class TranslationOutcome(
+  val translatedText: String,
+  val resolvedSourceLangCode: String,
+)
+
 class MlKitTranslationEngine {
 
   private val mutex = Mutex()
   private var currentSourceLangCode: String? = null
   private var translator: Translator? = null
+  private val languageIdentifier: LanguageIdentifier by lazy { LanguageIdentification.getClient() }
 
   suspend fun translateToArabic(
     text: String,
     sourceLangCode: String,
     skipArabic: Boolean,
-  ): Result<String> =
+  ): Result<TranslationOutcome> =
     mutex.withLock {
       withContext(Dispatchers.IO) {
         val trimmed = text.trim()
-        if (trimmed.isEmpty()) return@withContext Result.success("")
+        if (trimmed.isEmpty()) {
+          return@withContext Result.success(TranslationOutcome("", sourceLangCode))
+        }
         if (skipArabic && isMostlyArabic(trimmed)) {
-          return@withContext Result.success("")
+          return@withContext Result.success(TranslationOutcome("", TranslateLanguage.ARABIC))
         }
 
         runCatching {
-          val activeTranslator = getOrCreateTranslator(sourceLangCode)
+          val resolvedMlKitSource = resolveMlKitSourceLanguage(trimmed, sourceLangCode)
+          if (skipArabic && resolvedMlKitSource == TranslateLanguage.ARABIC) {
+            return@runCatching TranslationOutcome("", TranslateLanguage.ARABIC)
+          }
+          val activeTranslator = getOrCreateTranslator(resolvedMlKitSource)
           activeTranslator.downloadModelIfNeeded(DownloadConditions.Builder().build()).awaitResult()
-          activeTranslator.translate(trimmed).awaitResult().trim()
+          val translated = activeTranslator.translate(trimmed).awaitResult().trim()
+          TranslationOutcome(
+            translatedText = translated,
+            resolvedSourceLangCode = resolvedMlKitSource,
+          )
         }
       }
     }
 
-  private fun getOrCreateTranslator(sourceLangCode: String): Translator {
+  private suspend fun resolveMlKitSourceLanguage(text: String, configuredCode: String): String {
+    if (configuredCode != SupportedLanguages.AUTO_CODE) {
+      return SupportedLanguages.findByCode(configuredCode).mlKitLanguageCode
+    }
+    val identifiedTag =
+      runCatching { languageIdentifier.identifyLanguage(text).awaitResult() }
+        .getOrDefault("und")
+    if (identifiedTag == LanguageIdentifier.UNDETERMINED_LANGUAGE_TAG || identifiedTag.isBlank()) {
+      return TranslateLanguage.ENGLISH
+    }
+    if (identifiedTag.startsWith("ar")) {
+      return TranslateLanguage.ARABIC
+    }
+    return TranslateLanguage.fromLanguageTag(identifiedTag) ?: TranslateLanguage.ENGLISH
+  }
+
+  private fun getOrCreateTranslator(mlKitSourceCode: String): Translator {
     val existing = translator
-    if (existing != null && currentSourceLangCode == sourceLangCode) {
+    if (existing != null && currentSourceLangCode == mlKitSourceCode) {
       return existing
     }
     runCatching { existing?.close() }
 
-    val mlKitSource = SupportedLanguages.findByCode(sourceLangCode).mlKitLanguageCode
     val options =
       TranslatorOptions.Builder()
-        .setSourceLanguage(mlKitSource)
+        .setSourceLanguage(mlKitSourceCode)
         .setTargetLanguage(TranslateLanguage.ARABIC)
         .build()
 
     return Translation.getClient(options).also {
       translator = it
-      currentSourceLangCode = sourceLangCode
+      currentSourceLangCode = mlKitSourceCode
     }
   }
 
   suspend fun close() =
     mutex.withLock {
       runCatching { translator?.close() }
+      runCatching { languageIdentifier.close() }
       translator = null
       currentSourceLangCode = null
     }

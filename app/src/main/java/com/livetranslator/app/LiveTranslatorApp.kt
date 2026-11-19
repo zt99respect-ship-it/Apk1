@@ -3,6 +3,7 @@ package com.livetranslator.app
 import android.app.Application
 import com.livetranslator.app.data.local.db.LiveTranslatorDatabase
 import com.livetranslator.app.data.local.prefs.SettingsDataStore
+import com.livetranslator.app.data.model.SupportedLanguages
 import com.livetranslator.app.data.repository.TranslationRepository
 import com.livetranslator.app.engine.DownloadHelper
 import com.livetranslator.app.engine.MlKitTranslationEngine
@@ -25,6 +26,7 @@ class LiveTranslatorApp : Application() {
   val repository: TranslationRepository by lazy {
     TranslationRepository(
       historyDao = database.translationHistoryDao(),
+      sessionDao = database.translationSessionDao(),
       settingsDataStore = settingsDataStore,
     )
   }
@@ -44,10 +46,8 @@ class LiveTranslatorApp : Application() {
       runCatching {
         repository.purgeExpiredHistory()
         val settings = repository.getCurrentSettings()
-        val status = downloadHelper.refreshModelStatus(settings.sourceLanguageCode)
-        if (!status.allReady) {
-          downloadHelper.ensureAllModelsReady(settings.sourceLanguageCode)
-        }
+        val targetLang = SupportedLanguages.resolveVoskLanguage(settings.sourceLanguageCode).code
+        downloadHelper.refreshModelStatus(targetLang)
       }
     }
   }

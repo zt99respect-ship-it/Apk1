@@ -99,6 +99,7 @@ dependencies {
   implementation(libs.okhttp)
   implementation(libs.vosk.android)
   implementation(libs.mlkit.translate)
+  implementation(libs.mlkit.language.id)
 
   testImplementation(libs.junit)
   testImplementation(libs.androidx.junit)

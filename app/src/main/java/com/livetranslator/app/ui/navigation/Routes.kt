@@ -4,8 +4,9 @@ object Routes {
   const val SPLASH = "splash"
   const val ONBOARDING = "onboarding"
   const val HOME = "home"
-  const val OVERLAY_SETTINGS = "overlay_settings"
-  const val HISTORY = "history"
+  const val SUMMARY = "summary"
+  const val DEVICES = "devices"
+  const val ACCOUNT = "account"
+  const val TRANSLATION_STYLE = "translation_style"
   const val SETTINGS = "settings"
-  const val ABOUT = "about"
 }

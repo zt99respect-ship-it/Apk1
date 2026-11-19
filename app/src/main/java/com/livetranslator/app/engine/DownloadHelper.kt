@@ -30,12 +30,12 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 
 data class OfflineModelsState(
-  val activeLanguageCode: String = "en",
+  val activeLanguageCode: String = SupportedLanguages.AUTO_CODE,
   val voskModelReady: Boolean = false,
   val mlKitModelsReady: Boolean = false,
   val isDownloading: Boolean = false,
   val progressPercent: Int = 0,
-  val stageMessage: String = "جاري التحقق من النماذج المحلية...",
+  val stageMessage: String = "الخدمة الفورية جاهزة (تلقائي / مرن)",
   val errorMessage: String? = null,
 ) {
   val allReady: Boolean
@@ -59,11 +59,14 @@ class DownloadHelper(private val context: Context) {
   private val modelsRootDir: File
     get() = File(context.filesDir, "vosk_models").apply { mkdirs() }
 
-  fun isVoskModelDownloaded(languageCode: String): Boolean =
-    resolveVoskModelDir(languageCode) != null
+  fun isVoskModelDownloaded(languageCode: String): Boolean {
+    val resolvedCode = SupportedLanguages.resolveVoskLanguage(languageCode).code
+    return resolveVoskModelDir(resolvedCode) != null
+  }
 
   fun resolveVoskModelDir(languageCode: String): File? {
-    val langDir = File(modelsRootDir, languageCode)
+    val resolvedCode = SupportedLanguages.resolveVoskLanguage(languageCode).code
+    val langDir = File(modelsRootDir, resolvedCode)
     val readyMarker = File(langDir, READY_MARKER_FILE)
     if (!langDir.exists() || !readyMarker.exists()) return null
     return findValidVoskRoot(langDir)
@@ -71,22 +74,24 @@ class DownloadHelper(private val context: Context) {
 
   suspend fun refreshModelStatus(sourceLangCode: String): OfflineModelsState =
     withContext(Dispatchers.IO) {
-      val lang = SupportedLanguages.findByCode(sourceLangCode)
+      val lang = SupportedLanguages.resolveVoskLanguage(sourceLangCode)
       val voskReady = isVoskModelDownloaded(lang.code)
       val mlKitReady = isMlKitPairDownloaded(lang.mlKitLanguageCode)
       val next =
         OfflineModelsState(
-          activeLanguageCode = lang.code,
+          activeLanguageCode = sourceLangCode,
           voskModelReady = voskReady,
           mlKitModelsReady = mlKitReady,
           isDownloading = false,
           progressPercent = if (voskReady && mlKitReady) 100 else 0,
           stageMessage =
             when {
-              voskReady && mlKitReady -> "النماذج جاهزة للعمل بدون إنترنت (${lang.displayName})"
-              !voskReady && !mlKitReady -> "يلزم تنزيل نموذج الصوت والترجمة (${lang.displayName}) لأول مرة"
-              !voskReady -> "يلزم تنزيل نموذج التعرف الصوتي Vosk (${lang.displayName})"
-              else -> "يلزم تنزيل نموذج الترجمة المحلي ML Kit (${lang.displayName} ← العربية)"
+              voskReady && mlKitReady ->
+                "الخدمة جاهزة (متصلة + محلية احتياطية: ${lang.displayName})"
+              !voskReady && !mlKitReady ->
+                "المحرك المرن جاهز • يمكنك تنزيل الحزمة المحلية (${lang.displayName}) كخيار إضافي"
+              !voskReady -> "حزمة Vosk (${lang.displayName}) غير محمّلة محلياً (اختياري عند توفر النت)"
+              else -> "حزمة ML Kit (${lang.displayName} ← العربية) ستُحمّل تلقائياً عند الحاجة"
             },
           errorMessage = null,
         )
@@ -97,21 +102,21 @@ class DownloadHelper(private val context: Context) {
   suspend fun ensureAllModelsReady(sourceLangCode: String): Result<File> =
     downloadMutex.withLock {
       withContext(Dispatchers.IO) {
-        val lang = SupportedLanguages.findByCode(sourceLangCode)
+        val lang = SupportedLanguages.resolveVoskLanguage(sourceLangCode)
         runCatching {
             val voskReadyInitially = isVoskModelDownloaded(lang.code)
             val mlKitReadyInitially = isMlKitPairDownloaded(lang.mlKitLanguageCode)
 
             _state.value =
               OfflineModelsState(
-                activeLanguageCode = lang.code,
+                activeLanguageCode = sourceLangCode,
                 voskModelReady = voskReadyInitially,
                 mlKitModelsReady = mlKitReadyInitially,
                 isDownloading = true,
                 progressPercent = if (voskReadyInitially) 70 else 2,
                 stageMessage =
-                  if (voskReadyInitially) "نموذج Vosk جاهز — جاري فحص ML Kit..."
-                  else "جاري تنزيل نموذج الصوت ${lang.displayName} (~${lang.approxSizeMb} MB)...",
+                  if (voskReadyInitially) "نموذج Vosk جاهز — جاري فحص حزمة الترجمة..."
+                  else "جاري تجهيز نموذج الصوت ${lang.displayName} (~${lang.approxSizeMb} MB)...",
                 errorMessage = null,
               )
 
@@ -122,7 +127,7 @@ class DownloadHelper(private val context: Context) {
               it.copy(
                 voskModelReady = true,
                 progressPercent = 80,
-                stageMessage = "تم تجهيز Vosk • جاري تجهيز نموذج الترجمة ML Kit (للعربية)...",
+                stageMessage = "تم تجهيز نموذج الصوت • جاري تجهيز المترجم العربي...",
               )
             }
 
@@ -130,12 +135,12 @@ class DownloadHelper(private val context: Context) {
 
             _state.value =
               OfflineModelsState(
-                activeLanguageCode = lang.code,
+                activeLanguageCode = sourceLangCode,
                 voskModelReady = true,
                 mlKitModelsReady = true,
                 isDownloading = false,
                 progressPercent = 100,
-                stageMessage = "النماذج المحلية جاهزة للعمل بدون إنترنت (${lang.displayName})",
+                stageMessage = "النماذج جاهزة (${lang.displayName} ← العربية)",
                 errorMessage = null,
               )
 
@@ -146,13 +151,13 @@ class DownloadHelper(private val context: Context) {
             val currentMlKit = isMlKitPairDownloaded(lang.mlKitLanguageCode)
             _state.value =
               OfflineModelsState(
-                activeLanguageCode = lang.code,
+                activeLanguageCode = sourceLangCode,
                 voskModelReady = currentVosk,
                 mlKitModelsReady = currentMlKit,
                 isDownloading = false,
                 progressPercent = 0,
-                stageMessage = "تعذر تجهيز النماذج المحلية",
-                errorMessage = err.message ?: "تحقق من اتصال الإنترنت عند التحميل الأول فقط",
+                stageMessage = "تعذر تحميل الحزمة الإضافية",
+                errorMessage = err.message ?: "تحقق من اتصال الإنترنت ثم أعد المحاولة",
               )
           }
       }
@@ -160,7 +165,8 @@ class DownloadHelper(private val context: Context) {
 
   suspend fun deleteVoskModel(languageCode: String) =
     withContext(Dispatchers.IO) {
-      val langDir = File(modelsRootDir, languageCode)
+      val resolved = SupportedLanguages.resolveVoskLanguage(languageCode).code
+      val langDir = File(modelsRootDir, resolved)
       if (langDir.exists()) {
         langDir.deleteRecursively()
       }
@@ -181,7 +187,7 @@ class DownloadHelper(private val context: Context) {
       val request = Request.Builder().url(lang.voskDownloadUrl).get().build()
       client.newCall(request).execute().use { response ->
         if (!response.isSuccessful) {
-          throw IOException("فشل تنزيل نموذج Vosk (HTTP ${response.code})")
+          throw IOException("فشل تنزيل نموذج الصوت (HTTP ${response.code})")
         }
         val body = response.body ?: throw IOException("استجابة التنزيل فارغة")
         val contentLength = body.contentLength()
@@ -302,7 +308,7 @@ class DownloadHelper(private val context: Context) {
       _state.update {
         it.copy(
           progressPercent = 85,
-          stageMessage = "جاري تنزيل حزمة اللغة المصدر لـ ML Kit...",
+          stageMessage = "جاري تجهيز حزمة اللغة لـ ML Kit...",
         )
       }
       manager.download(sourceModel, conditions).awaitResult()
@@ -313,7 +319,7 @@ class DownloadHelper(private val context: Context) {
       _state.update {
         it.copy(
           progressPercent = 93,
-          stageMessage = "جاري تنزيل حزمة اللغة العربية لـ ML Kit...",
+          stageMessage = "جاري تجهيز حزمة اللغة العربية لـ ML Kit...",
         )
       }
       manager.download(arabicModel, conditions).awaitResult()

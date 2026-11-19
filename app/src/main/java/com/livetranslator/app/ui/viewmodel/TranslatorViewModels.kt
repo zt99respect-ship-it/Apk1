@@ -5,9 +5,13 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.livetranslator.app.LiveTranslatorApp
 import com.livetranslator.app.data.local.db.TranslationHistoryEntity
+import com.livetranslator.app.data.local.db.TranslationSessionEntity
 import com.livetranslator.app.data.model.ArabicFontOption
-import com.livetranslator.app.data.model.OverlayBackground
+import com.livetranslator.app.data.model.AudioSourcePreference
+import com.livetranslator.app.data.model.OverlayFontWeight
 import com.livetranslator.app.data.model.OverlayPosition
+import com.livetranslator.app.data.model.OverlayStylePreset
+import com.livetranslator.app.data.model.SpeechEnginePreference
 import com.livetranslator.app.data.model.UserSettings
 import com.livetranslator.app.data.repository.TranslationRepository
 import com.livetranslator.app.engine.DownloadHelper
@@ -47,6 +51,13 @@ class MainViewModel(
       initialValue = null,
     )
 
+  val latestSession: StateFlow<TranslationSessionEntity?> =
+    repository.latestSessionFlow.stateIn(
+      scope = viewModelScope,
+      started = SharingStarted.WhileSubscribed(5000),
+      initialValue = null,
+    )
+
   fun completeOnboarding() {
     viewModelScope.launch { repository.setOnboardingCompleted(true) }
   }
@@ -58,7 +69,7 @@ class MainViewModel(
   }
 }
 
-class OverlaySettingsViewModel(private val repository: TranslationRepository) : ViewModel() {
+class OverlayStyleViewModel(private val repository: TranslationRepository) : ViewModel() {
 
   val settings: StateFlow<UserSettings> =
     repository.settingsFlow.stateIn(
@@ -67,24 +78,42 @@ class OverlaySettingsViewModel(private val repository: TranslationRepository) : 
       initialValue = UserSettings(),
     )
 
+  fun applyPreset(preset: OverlayStylePreset) {
+    viewModelScope.launch { repository.applyStylePreset(preset) }
+  }
+
+  fun saveFullStyle(
+    preset: OverlayStylePreset,
+    font: ArabicFontOption,
+    weight: OverlayFontWeight,
+    fontSizeSp: Float,
+    textColorArgb: Long,
+    boxColorArgb: Long,
+    boxOpacity: Float,
+    position: OverlayPosition,
+    cornerRadiusDp: Float,
+  ) {
+    viewModelScope.launch {
+      repository.saveFullOverlayStyle(
+        preset = preset,
+        font = font,
+        weight = weight,
+        fontSizeSp = fontSizeSp,
+        textColorArgb = textColorArgb,
+        boxColorArgb = boxColorArgb,
+        boxOpacity = boxOpacity,
+        position = position,
+        cornerRadiusDp = cornerRadiusDp,
+      )
+    }
+  }
+
+  fun resetToOriginal() {
+    viewModelScope.launch { repository.resetStyleToDefaults() }
+  }
+
   fun setPosition(position: OverlayPosition) {
     viewModelScope.launch { repository.setOverlayPosition(position) }
-  }
-
-  fun setBackground(background: OverlayBackground) {
-    viewModelScope.launch { repository.setOverlayBackground(background) }
-  }
-
-  fun setFontSizeSp(sizeSp: Float) {
-    viewModelScope.launch { repository.setOverlayFontSizeSp(sizeSp) }
-  }
-
-  fun setTextColorArgb(argb: Long) {
-    viewModelScope.launch { repository.setOverlayTextColorArgb(argb) }
-  }
-
-  fun setFont(font: ArabicFontOption) {
-    viewModelScope.launch { repository.setOverlayFont(font) }
   }
 
   fun setCornerRadiusDp(radiusDp: Float) {
@@ -93,10 +122,17 @@ class OverlaySettingsViewModel(private val repository: TranslationRepository) : 
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class HistoryViewModel(private val repository: TranslationRepository) : ViewModel() {
+class SummaryViewModel(private val repository: TranslationRepository) : ViewModel() {
 
   private val _searchQuery = MutableStateFlow("")
   val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+  val sessions: StateFlow<List<TranslationSessionEntity>> =
+    repository.allSessionsFlow.stateIn(
+      scope = viewModelScope,
+      started = SharingStarted.WhileSubscribed(5000),
+      initialValue = emptyList(),
+    )
 
   val historyItems: StateFlow<List<TranslationHistoryEntity>> =
     _searchQuery
@@ -111,18 +147,67 @@ class HistoryViewModel(private val repository: TranslationRepository) : ViewMode
     _searchQuery.value = query
   }
 
-  fun deleteItem(id: Long) {
+  fun deleteSession(sessionId: Long) {
+    viewModelScope.launch { repository.deleteSession(sessionId) }
+  }
+
+  fun deleteHistoryItem(id: Long) {
     viewModelScope.launch { repository.deleteHistoryItem(id) }
   }
 
   fun clearAll() {
-    viewModelScope.launch { repository.clearHistory() }
+    viewModelScope.launch { repository.clearAllSessionsAndHistory() }
   }
 
   suspend fun buildExportText(): String = repository.buildExportTxt()
 }
 
-class SettingsViewModel(
+class DevicesViewModel(
+  private val repository: TranslationRepository,
+  val sessionManager: TranslationSessionManager,
+  private val downloadHelper: DownloadHelper,
+) : ViewModel() {
+
+  val settings: StateFlow<UserSettings> =
+    repository.settingsFlow.stateIn(
+      scope = viewModelScope,
+      started = SharingStarted.WhileSubscribed(5000),
+      initialValue = UserSettings(),
+    )
+
+  val sessionState: StateFlow<TranslationSessionState> = sessionManager.state
+
+  val modelsState: StateFlow<OfflineModelsState> = downloadHelper.state
+
+  fun setAudioSourcePreference(preference: AudioSourcePreference) {
+    viewModelScope.launch { repository.setAudioSourcePreference(preference) }
+  }
+
+  fun setSpeechEnginePreference(preference: SpeechEnginePreference) {
+    viewModelScope.launch { repository.setSpeechEnginePreference(preference) }
+  }
+
+  fun setSourceLanguageCode(code: String) {
+    viewModelScope.launch {
+      repository.setSourceLanguageCode(code)
+      downloadHelper.refreshModelStatus(code)
+    }
+  }
+
+  fun setAudioChunkSeconds(seconds: Int) {
+    viewModelScope.launch { repository.setAudioChunkSeconds(seconds) }
+  }
+
+  fun downloadModelsFor(code: String) {
+    viewModelScope.launch { downloadHelper.ensureAllModelsReady(code) }
+  }
+
+  fun deleteVoskModel(code: String) {
+    viewModelScope.launch { downloadHelper.deleteVoskModel(code) }
+  }
+}
+
+class AccountViewModel(
   private val repository: TranslationRepository,
   private val downloadHelper: DownloadHelper,
 ) : ViewModel() {
@@ -134,37 +219,41 @@ class SettingsViewModel(
       initialValue = UserSettings(),
     )
 
+  val latestSession: StateFlow<TranslationSessionEntity?> =
+    repository.latestSessionFlow.stateIn(
+      scope = viewModelScope,
+      started = SharingStarted.WhileSubscribed(5000),
+      initialValue = null,
+    )
+
   val modelsState: StateFlow<OfflineModelsState> = downloadHelper.state
 
-  fun setSourceLanguageCode(code: String) {
-    viewModelScope.launch {
-      repository.setSourceLanguageCode(code)
-      downloadHelper.refreshModelStatus(code)
-    }
-  }
-
-  fun downloadModelsFor(code: String) {
-    viewModelScope.launch {
-      downloadHelper.ensureAllModelsReady(code)
-    }
-  }
-
-  fun deleteVoskModel(code: String) {
-    viewModelScope.launch {
-      downloadHelper.deleteVoskModel(code)
-    }
+  fun setAccountLabel(label: String) {
+    viewModelScope.launch { repository.setAccountLabel(label) }
   }
 
   fun setSkipArabic(skip: Boolean) {
     viewModelScope.launch { repository.setSkipArabic(skip) }
   }
 
+  fun setAutoRestartOnBoot(enabled: Boolean) {
+    viewModelScope.launch { repository.setAutoRestartOnBoot(enabled) }
+  }
+
   fun setAudioChunkSeconds(seconds: Int) {
     viewModelScope.launch { repository.setAudioChunkSeconds(seconds) }
   }
 
-  fun setAutoRestartOnBoot(enabled: Boolean) {
-    viewModelScope.launch { repository.setAutoRestartOnBoot(enabled) }
+  fun setOverlayPosition(position: OverlayPosition) {
+    viewModelScope.launch { repository.setOverlayPosition(position) }
+  }
+
+  fun clearAllSessionsAndHistory() {
+    viewModelScope.launch { repository.clearAllSessionsAndHistory() }
+  }
+
+  fun resetAllSettings() {
+    viewModelScope.launch { repository.resetAllSettings() }
   }
 }
 
@@ -175,12 +264,14 @@ class LiveTranslatorViewModelFactory(private val app: LiveTranslatorApp) :
     when {
       modelClass.isAssignableFrom(MainViewModel::class.java) ->
         MainViewModel(app.repository, app.sessionManager, app.downloadHelper) as T
-      modelClass.isAssignableFrom(OverlaySettingsViewModel::class.java) ->
-        OverlaySettingsViewModel(app.repository) as T
-      modelClass.isAssignableFrom(HistoryViewModel::class.java) ->
-        HistoryViewModel(app.repository) as T
-      modelClass.isAssignableFrom(SettingsViewModel::class.java) ->
-        SettingsViewModel(app.repository, app.downloadHelper) as T
+      modelClass.isAssignableFrom(OverlayStyleViewModel::class.java) ->
+        OverlayStyleViewModel(app.repository) as T
+      modelClass.isAssignableFrom(SummaryViewModel::class.java) ->
+        SummaryViewModel(app.repository) as T
+      modelClass.isAssignableFrom(DevicesViewModel::class.java) ->
+        DevicesViewModel(app.repository, app.sessionManager, app.downloadHelper) as T
+      modelClass.isAssignableFrom(AccountViewModel::class.java) ->
+        AccountViewModel(app.repository, app.downloadHelper) as T
       else -> throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
     }
 }

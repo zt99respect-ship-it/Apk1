@@ -8,43 +8,49 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import com.livetranslator.app.R
 import com.livetranslator.app.data.model.ArabicFontOption
+import com.livetranslator.app.data.model.OverlayFontWeight
 
 object ArabicFontRegistry {
   val CairoFontFamily: FontFamily =
     FontFamily(
-      Font(R.font.cairo_regular, FontWeight.Normal),
-      Font(R.font.cairo_regular, FontWeight.Medium),
+      Font(R.font.cairo, FontWeight.Normal),
+      Font(R.font.cairo, FontWeight.Medium),
       Font(R.font.cairo_bold, FontWeight.Bold),
     )
 
-  private val TajawalFontFamily: FontFamily =
-    runCatching { FontFamily(Font(R.font.tajawal_regular, FontWeight.Normal)) }
-      .getOrElse { CairoFontFamily }
+  val TajawalFontFamily: FontFamily =
+    FontFamily(
+      Font(R.font.tajawal, FontWeight.Normal),
+      Font(R.font.tajawal, FontWeight.Medium),
+      Font(R.font.tajawal, FontWeight.Bold),
+    )
 
-  private val AlmaraiFontFamily: FontFamily =
-    runCatching { FontFamily(Font(R.font.almarai_regular, FontWeight.Normal)) }
-      .getOrElse { CairoFontFamily }
+  val IbmPlexSansArabicFontFamily: FontFamily =
+    FontFamily(
+      Font(R.font.ibm_plex_sans_arabic, FontWeight.Normal),
+      Font(R.font.ibm_plex_sans_arabic, FontWeight.Medium),
+      Font(R.font.ibm_plex_sans_arabic, FontWeight.Bold),
+    )
 
-  private val AmiriFontFamily: FontFamily =
-    runCatching { FontFamily(Font(R.font.amiri_regular, FontWeight.Normal)) }
-      .getOrElse { CairoFontFamily }
-
-  private val ReemKufiFontFamily: FontFamily =
-    runCatching { FontFamily(Font(R.font.reem_kufi_regular, FontWeight.Normal)) }
-      .getOrElse { CairoFontFamily }
-
-  private val NotoKufiArabicFontFamily: FontFamily =
-    runCatching { FontFamily(Font(R.font.noto_kufi_arabic_regular, FontWeight.Normal)) }
-      .getOrElse { CairoFontFamily }
+  val NotoNaskhArabicFontFamily: FontFamily =
+    FontFamily(
+      Font(R.font.noto_naskh_arabic, FontWeight.Normal),
+      Font(R.font.noto_naskh_arabic, FontWeight.Medium),
+      Font(R.font.noto_naskh_arabic, FontWeight.Bold),
+    )
 
   fun fontFamilyFor(option: ArabicFontOption): FontFamily =
     when (option) {
       ArabicFontOption.CAIRO -> CairoFontFamily
+      ArabicFontOption.IBM_PLEX_SANS_ARABIC -> IbmPlexSansArabicFontFamily
+      ArabicFontOption.NOTO_NASKH_ARABIC -> NotoNaskhArabicFontFamily
       ArabicFontOption.TAJAWAL -> TajawalFontFamily
-      ArabicFontOption.ALMARAI -> AlmaraiFontFamily
-      ArabicFontOption.AMIRI -> AmiriFontFamily
-      ArabicFontOption.REEM_KUFI -> ReemKufiFontFamily
-      ArabicFontOption.NOTO_KUFI_ARABIC -> NotoKufiArabicFontFamily
+    }
+
+  fun composeWeightFor(weight: OverlayFontWeight): FontWeight =
+    when (weight) {
+      OverlayFontWeight.NORMAL -> FontWeight.Normal
+      OverlayFontWeight.BOLD -> FontWeight.Bold
     }
 }
 
@@ -55,8 +61,14 @@ val LiveTranslatorTypography =
         fontFamily = ArabicFontRegistry.CairoFontFamily,
         fontWeight = FontWeight.Bold,
         fontSize = 32.sp,
-        lineHeight = 38.sp,
-        letterSpacing = (-0.5).sp,
+        lineHeight = 40.sp,
+      ),
+    headlineLarge =
+      TextStyle(
+        fontFamily = ArabicFontRegistry.CairoFontFamily,
+        fontWeight = FontWeight.Bold,
+        fontSize = 28.sp,
+        lineHeight = 36.sp,
       ),
     headlineMedium =
       TextStyle(
@@ -75,9 +87,9 @@ val LiveTranslatorTypography =
     titleMedium =
       TextStyle(
         fontFamily = ArabicFontRegistry.CairoFontFamily,
-        fontWeight = FontWeight.Medium,
+        fontWeight = FontWeight.Bold,
         fontSize = 16.sp,
-        lineHeight = 22.sp,
+        lineHeight = 24.sp,
       ),
     bodyLarge =
       TextStyle(

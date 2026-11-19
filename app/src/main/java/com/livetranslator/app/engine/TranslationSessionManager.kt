@@ -1,6 +1,7 @@
 package com.livetranslator.app.engine
 
 import android.content.Intent
+import com.livetranslator.app.data.model.SupportedLanguages
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -12,14 +13,16 @@ data class TranslationSessionState(
   val isOverlayActive: Boolean = false,
   val isCardExpanded: Boolean = false,
   val bubbleSnoozedUntilMs: Long = 0L,
-  val statusMessage: String = "جاهز للالتقاط (بدون إنترنت)",
+  val statusMessage: String = "الخدمة الفورية جاهزة • بدون قيود",
   val engineMode: String = "خامل",
   val audioLevel: Float = 0f,
   val segmentsTranslated: Int = 0,
+  val sessionStartMs: Long = 0L,
+  val activeSessionId: Long? = null,
   val lastPartialSource: String = "",
   val lastSourceText: String = "",
   val lastTranslatedText: String = "",
-  val lastSourceLang: String = "en",
+  val lastSourceLang: String = SupportedLanguages.AUTO_CODE,
   val lastTimestampMs: Long = 0L,
   val lastError: String? = null,
 ) {
@@ -47,7 +50,12 @@ class TranslationSessionManager {
     return result
   }
 
-  fun updateRunning(running: Boolean, status: String, mode: String) {
+  fun updateRunning(
+    running: Boolean,
+    status: String,
+    mode: String,
+    sessionId: Long? = null,
+  ) {
     _state.update {
       it.copy(
         isRunning = running,
@@ -55,10 +63,16 @@ class TranslationSessionManager {
         engineMode = mode,
         audioLevel = if (running) it.audioLevel else 0f,
         segmentsTranslated = if (running) 0 else it.segmentsTranslated,
+        sessionStartMs = if (running) System.currentTimeMillis() else 0L,
+        activeSessionId = if (running) (sessionId ?: it.activeSessionId) else null,
         lastPartialSource = if (running) "" else it.lastPartialSource,
         lastError = if (running) null else it.lastError,
       )
     }
+  }
+
+  fun setActiveSessionId(sessionId: Long?) {
+    _state.update { it.copy(activeSessionId = sessionId) }
   }
 
   fun updateAudioLevel(level: Float) {
@@ -134,7 +148,7 @@ class TranslationSessionManager {
       it.copy(
         isTranslating = false,
         lastError = error,
-        statusMessage = "تنبيه في المحرك المحلي",
+        statusMessage = "تنبيه في خدمة الترجمة",
         isCardExpanded = if (expandOverlay && it.isOverlayActive) true else it.isCardExpanded,
       )
     }

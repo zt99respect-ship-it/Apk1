@@ -85,15 +85,17 @@ import com.livetranslator.app.data.model.UserSettings
 import com.livetranslator.app.engine.TranslationSessionState
 import com.livetranslator.app.ui.theme.ArabicFontRegistry
 import com.livetranslator.app.ui.theme.BrightAmethyst
+import com.livetranslator.app.ui.theme.CrispWhite
+import com.livetranslator.app.ui.theme.DeepViolet
 import com.livetranslator.app.ui.theme.ElectricViolet
 import com.livetranslator.app.ui.theme.EmeraldAccent
-import com.livetranslator.app.ui.theme.HomeRadialBottomRight
+import com.livetranslator.app.ui.theme.GlassCardFillStrong
+import com.livetranslator.app.ui.theme.GlassWhiteBorder
 import com.livetranslator.app.ui.theme.LavenderWhite
 import com.livetranslator.app.ui.theme.LiveTranslatorTheme
 import com.livetranslator.app.ui.theme.MutedViolet
 import com.livetranslator.app.ui.theme.RoseError
 import com.livetranslator.app.ui.theme.SoftLavender
-import com.livetranslator.app.ui.theme.VioletOutline
 import com.livetranslator.app.ui.theme.VoidSurface
 import com.livetranslator.app.ui.theme.VoidSurfaceVariant
 import kotlin.math.hypot
@@ -175,8 +177,6 @@ class OverlayService : LifecycleService(), SavedStateRegistryOwner {
       }
     }
 
-    // Separate auto-hide observer keyed only on expansion, snooze, and new translation timestamp
-    // so frequent 120ms audio-level ticks never cancel the 6-second auto-hide timer.
     lifecycleScope.launch {
       app.sessionManager.state
         .map { Triple(it.isCardExpanded, it.isBubbleSnoozed, it.lastTimestampMs) }
@@ -495,32 +495,32 @@ private fun FloatingBubble(
     when {
       hasError -> RoseError
       isRunning -> EmeraldAccent
-      else -> MutedViolet
+      else -> SoftLavender
     }
 
   Box(
     modifier =
       Modifier.size(60.dp)
         .scale(pulseScale)
-        .shadow(12.dp, CircleShape, ambientColor = ElectricViolet, spotColor = BrightAmethyst)
+        .shadow(14.dp, CircleShape, ambientColor = ElectricViolet, spotColor = BrightAmethyst)
         .clip(CircleShape)
         .background(
           Brush.linearGradient(
             colors =
               if (isRunning) {
-                listOf(ElectricViolet, BrightAmethyst, HomeRadialBottomRight)
+                listOf(BrightAmethyst, ElectricViolet, DeepViolet)
               } else {
-                listOf(VoidSurface, HomeRadialBottomRight)
+                listOf(GlassCardFillStrong, DeepViolet)
               }
           )
         )
-        .border(1.5.dp, SoftLavender.copy(alpha = 0.8f), CircleShape),
+        .border(1.5.dp, SoftLavender.copy(alpha = 0.85f), CircleShape),
     contentAlignment = Alignment.Center,
   ) {
     Icon(
       painter = painterResource(id = R.drawable.ic_translate),
       contentDescription = stringResource(R.string.overlay_bubble_desc),
-      tint = LavenderWhite,
+      tint = CrispWhite,
       modifier = Modifier.size(28.dp),
     )
 
@@ -545,37 +545,47 @@ fun FloatingTranslationCard(
 ) {
   val context = LocalContext.current
   val cornerShape = RoundedCornerShape(settings.overlayCornerRadiusDp.dp)
-  val containerColor =
-    when (settings.overlayBackground) {
-      OverlayBackground.NONE -> Color.Transparent
-      OverlayBackground.GLASS -> VoidSurface.copy(alpha = 0.88f)
-      OverlayBackground.SOLID -> VoidSurface
-    }
+  val effectiveAlpha =
+    if (settings.overlayBackground == OverlayBackground.NONE) 0f
+    else settings.overlayBoxOpacity.coerceIn(0f, 1f)
+  val containerColor = Color(settings.overlayBoxColorArgb).copy(alpha = effectiveAlpha)
+
   val borderStroke =
-    when (settings.overlayBackground) {
-      OverlayBackground.NONE -> null
-      OverlayBackground.GLASS -> BorderStroke(1.dp, VioletOutline)
-      OverlayBackground.SOLID -> BorderStroke(1.dp, ElectricViolet.copy(alpha = 0.65f))
+    if (effectiveAlpha <= 0.05f) {
+      null
+    } else {
+      BorderStroke(
+        width = 1.dp,
+        brush =
+          Brush.linearGradient(
+            listOf(
+              CrispWhite.copy(alpha = 0.25f),
+              ElectricViolet.copy(alpha = 0.48f),
+              GlassWhiteBorder,
+            )
+          ),
+      )
     }
 
   val fontFamily = ArabicFontRegistry.fontFamilyFor(settings.overlayFont)
+  val fontWeight = ArabicFontRegistry.composeWeightFor(settings.overlayFontWeight)
   val textColor = Color(settings.overlayTextColorArgb)
 
   val statusDotColor =
     when {
       sessionState.lastError != null -> RoseError
       sessionState.isRunning -> EmeraldAccent
-      else -> MutedViolet
+      else -> SoftLavender
     }
 
   val arabicDisplayText =
     when {
-      sessionState.lastError != null -> "خطأ: ${sessionState.lastError}"
+      sessionState.lastError != null -> "تنبيه: ${sessionState.lastError}"
       sessionState.lastTranslatedText.isNotBlank() -> sessionState.lastTranslatedText
       sessionState.isRunning ->
-        "Vosk و ML Kit نشطان محلياً بدون إنترنت — في انتظار وصول كلام مسموع..."
+        "يتم التقاط صوت الهاتف وترجمته فورياً إلى العربية..."
       else ->
-        "هذه الفقاعة تعرض الترجمة العربية الفورية بدون إنترنت فوق التطبيقات.\nافتح التطبيق واضغط «بدء صوت الشاشة»، واسحب الفقاعة لأي مكان."
+        "صندوق الترجمة الفورية جاهز.\nافتح التطبيق واضغط «ابدأ الترجمة» لالتقاط صوت الفيديوهات والبثوث."
     }
 
   Surface(
@@ -583,7 +593,7 @@ fun FloatingTranslationCard(
     shape = cornerShape,
     color = containerColor,
     border = borderStroke,
-    shadowElevation = if (settings.overlayBackground == OverlayBackground.NONE) 0.dp else 10.dp,
+    shadowElevation = if (effectiveAlpha <= 0.05f) 0.dp else 12.dp,
   ) {
     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
       Row(
@@ -643,6 +653,7 @@ fun FloatingTranslationCard(
         text = arabicDisplayText,
         color = if (sessionState.lastError != null) RoseError else textColor,
         fontFamily = fontFamily,
+        fontWeight = fontWeight,
         fontSize =
           if (sessionState.lastTranslatedText.isNotBlank() && sessionState.lastError == null) {
             settings.overlayFontSizeSp.sp
@@ -692,7 +703,7 @@ fun FloatingTranslationCard(
           shape = RoundedCornerShape(10.dp),
           modifier = Modifier.height(36.dp),
         ) {
-          Text("فتح التطبيق", color = LavenderWhite, fontSize = 12.sp)
+          Text("فتح التطبيق", color = CrispWhite, fontSize = 12.sp)
         }
       }
     }

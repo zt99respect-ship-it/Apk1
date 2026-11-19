@@ -1,5 +1,8 @@
 package com.livetranslator.app
 
+import com.livetranslator.app.data.model.ArabicFontOption
+import com.livetranslator.app.data.model.OverlayStylePreset
+import com.livetranslator.app.data.model.SupportedLanguages
 import com.livetranslator.app.engine.AudioCaptureManager
 import com.livetranslator.app.engine.MlKitTranslationEngine
 import com.livetranslator.app.engine.VoskSpeechEngine
@@ -34,6 +37,26 @@ class OfflineTranslationTest {
   fun `isMostlyArabic detects Arabic vs English text`() {
     assertTrue(MlKitTranslationEngine.isMostlyArabic("مرحباً بكم في البث المباشر"))
     assertFalse(MlKitTranslationEngine.isMostlyArabic("Hello everyone welcome to the live stream"))
+  }
+
+  @Test
+  fun `supported languages starts with flexible auto detection`() {
+    assertEquals(SupportedLanguages.AUTO_CODE, SupportedLanguages.all.first().code)
+    assertEquals("en", SupportedLanguages.resolveVoskLanguage(SupportedLanguages.AUTO_CODE).code)
+  }
+
+  @Test
+  fun `arabic fonts include exact four required families and presets`() {
+    assertEquals(
+      listOf(
+        ArabicFontOption.CAIRO,
+        ArabicFontOption.IBM_PLEX_SANS_ARABIC,
+        ArabicFontOption.NOTO_NASKH_ARABIC,
+        ArabicFontOption.TAJAWAL,
+      ),
+      ArabicFontOption.entries,
+    )
+    assertEquals(3, OverlayStylePreset.entries.size)
   }
 
   @Test

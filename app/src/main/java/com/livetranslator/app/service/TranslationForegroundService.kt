@@ -16,8 +16,12 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import com.livetranslator.app.LiveTranslatorApp
+import com.livetranslator.app.data.model.AudioSourcePreference
+import com.livetranslator.app.data.model.SpeechEnginePreference
 import com.livetranslator.app.data.model.UserSettings
+import com.livetranslator.app.engine.AndroidSpeechRecognizerBridge
 import com.livetranslator.app.engine.AudioCaptureManager
+import java.io.File
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
@@ -27,15 +31,24 @@ class TranslationForegroundService : LifecycleService() {
     get() = application as LiveTranslatorApp
 
   private lateinit var audioCaptureManager: AudioCaptureManager
+  private lateinit var speechBridge: AndroidSpeechRecognizerBridge
 
   private var mediaProjection: MediaProjection? = null
   private var latestSettings: UserSettings = UserSettings()
   private var projectionCallback: MediaProjection.Callback? = null
   private var lastCommittedSource: String = ""
+  private var currentSessionId: Long? = null
+  private var sessionStartTimestamp: Long = 0L
+  private var sessionSegmentCount: Int = 0
+  private var lastResolvedSourceLang: String = "auto"
+
+  @Volatile private var voskReadyInMemory: Boolean = false
+  @Volatile private var speechPipeFailedOver: Boolean = false
 
   override fun onCreate() {
     super.onCreate()
     audioCaptureManager = AudioCaptureManager(this)
+    speechBridge = AndroidSpeechRecognizerBridge(this)
 
     lifecycleScope.launch {
       app.repository.settingsFlow.collectLatest { settings ->
@@ -97,13 +110,34 @@ class TranslationForegroundService : LifecycleService() {
   private fun beginTranslationPipeline(micOnly: Boolean) {
     lifecycleScope.launch {
       latestSettings = app.repository.getCurrentSettings()
+      val effectiveMicOnly =
+        micOnly || latestSettings.audioSourcePreference == AudioSourcePreference.MICROPHONE
+
+      sessionStartTimestamp = System.currentTimeMillis()
+      sessionSegmentCount = 0
+      lastResolvedSourceLang = latestSettings.sourceLanguageCode
+      voskReadyInMemory = false
+      speechPipeFailedOver = false
+
+      val audioModeLabel =
+        if (effectiveMicOnly) "الميكروفون" else "صوت النظام (الهاتف)"
+
+      val createdId =
+        app.repository.createSession(
+          startTimestamp = sessionStartTimestamp,
+          sourceLang = latestSettings.sourceLanguageCode,
+          audioMode = audioModeLabel,
+        )
+      currentSessionId = createdId
+
       app.sessionManager.updateRunning(
         running = true,
-        status = "جاري تحميل نماذج Vosk و ML Kit...",
-        mode = "تهيئة محلية",
+        status = "جاري تهيئة محرك الصوت والترجمة...",
+        mode = audioModeLabel,
+        sessionId = createdId,
       )
 
-      if (!micOnly) {
+      if (!effectiveMicOnly) {
         val (resultCode, resultData) = app.sessionManager.consumePendingMediaProjection()
         if (resultCode == Activity.RESULT_OK && resultData != null) {
           val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
@@ -123,59 +157,109 @@ class TranslationForegroundService : LifecycleService() {
         }
       }
 
-      val modelResult = app.downloadHelper.ensureAllModelsReady(latestSettings.sourceLanguageCode)
-      val modelDir =
-        modelResult.getOrElse { err ->
-          app.sessionManager.publishError(
-            err.message ?: "تعذر تجهيز نموذج Vosk أو ML Kit المحلي"
-          )
-          stopCaptureAndSelf()
-          return@launch
+      // Prepare Vosk model locally (needed for Vosk-only or instant failover in Flexible mode)
+      val existingVoskDir: File? =
+        app.downloadHelper.resolveVoskModelDir(latestSettings.sourceLanguageCode)
+      if (existingVoskDir != null) {
+        voskReadyInMemory = runCatching { app.voskEngine.loadModel(existingVoskDir) }.isSuccess
+      } else {
+        val modelResult = app.downloadHelper.ensureAllModelsReady(latestSettings.sourceLanguageCode)
+        val downloadedDir = modelResult.getOrNull()
+        if (downloadedDir != null) {
+          voskReadyInMemory = runCatching { app.voskEngine.loadModel(downloadedDir) }.isSuccess
         }
-
-      val loadResult = runCatching { app.voskEngine.loadModel(modelDir) }
-      if (loadResult.isFailure) {
-        app.sessionManager.publishError(
-          loadResult.exceptionOrNull()?.message ?: "تعذر تحميل نموذج Vosk في الذاكرة"
-        )
-        stopCaptureAndSelf()
-        return@launch
       }
 
       val projectionActive =
-        !micOnly && mediaProjection != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
-      startVoskCapture(if (projectionActive) mediaProjection else null)
+        !effectiveMicOnly && mediaProjection != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+      startFlexibleCapture(
+        projection = if (projectionActive) mediaProjection else null,
+        preferSystemPlayback = !effectiveMicOnly,
+      )
     }
   }
 
-  private fun startVoskCapture(projection: MediaProjection?) {
+  private fun startFlexibleCapture(
+    projection: MediaProjection?,
+    preferSystemPlayback: Boolean,
+  ) {
     lastCommittedSource = ""
+    val useFlexibleSpeechPipe =
+      latestSettings.speechEnginePreference == SpeechEnginePreference.FLEXIBLE_AUTO &&
+        speechBridge.isPipeAvailable()
+
+    val pipeStarted =
+      if (useFlexibleSpeechPipe) {
+        speechBridge.startWithPcmPipe(
+          sourceLanguageCode = latestSettings.sourceLanguageCode,
+          onPartial = { partial ->
+            app.sessionManager.updatePartialRecognition(partial)
+          },
+          onFinal = { recognized ->
+            lifecycleScope.launch { translateAndPublish(recognized) }
+          },
+          onFallbackToVosk = { reason ->
+            speechPipeFailedOver = true
+            app.sessionManager.publishStatus(
+              status = if (voskReadyInMemory) "التعرّف المباشر نشط (Vosk)" else reason,
+              mode = if (projection != null) "صوت النظام 16kHz (Vosk)" else "الميكروفون 16kHz (Vosk)",
+            )
+          },
+        )
+      } else {
+        false
+      }
+
+    if (!pipeStarted && !voskReadyInMemory) {
+      app.sessionManager.publishError(
+        "تعذر تشغيل محرك التعرف الصوتي. تأكد من اتصال الإنترنت عند التشغيل الأول لتحميل الحزمة الصوتية."
+      )
+      stopCaptureAndSelf()
+      return
+    }
+
+    val activeModeLabel =
+      when {
+        pipeStarted && projection != null -> "صوت الهاتف • محرك مرن"
+        pipeStarted -> "الميكروفون • محرك مرن"
+        projection != null -> "صوت الهاتف • محلي"
+        else -> "الميكروفون • محلي"
+      }
+
     app.sessionManager.updateRunning(
       running = true,
-      status = "يستمع الآن (بدون إنترنت)...",
-      mode = if (projection != null) "صوت النظام 16kHz (Vosk)" else "الميكروفون 16kHz (Vosk)",
+      status = "يستمع الآن ويترجم للعربية...",
+      mode = activeModeLabel,
+      sessionId = currentSessionId,
     )
 
     audioCaptureManager.startPcmStream(
       scope = lifecycleScope,
       mediaProjection = projection,
+      preferSystemPlayback = preferSystemPlayback,
       chunkSecondsProvider = { latestSettings.audioChunkSeconds },
-      onModeChanged = { mode -> app.sessionManager.publishStatus("يستمع الآن (بدون نت)", mode) },
+      onModeChanged = { mode -> app.sessionManager.publishStatus("يستمع الآن...", mode) },
       onAudioLevel = { level -> app.sessionManager.updateAudioLevel(level) },
       onPcmFrame = { pcmBytes, length ->
-        val output = app.voskEngine.acceptPcm(pcmBytes, length)
-        if (output != null) {
-          if (output.isFinal) {
-            translateAndPublish(output.text)
-          } else {
-            app.sessionManager.updatePartialRecognition(output.text)
+        val pipeFed =
+          pipeStarted && !speechPipeFailedOver && speechBridge.writePcmFrame(pcmBytes, length)
+        if (!pipeFed && voskReadyInMemory) {
+          val output = app.voskEngine.acceptPcm(pcmBytes, length)
+          if (output != null) {
+            if (output.isFinal) {
+              translateAndPublish(output.text)
+            } else {
+              app.sessionManager.updatePartialRecognition(output.text)
+            }
           }
         }
       },
       onChunkWindowElapsed = {
-        val flushed = app.voskEngine.flushFinalText()
-        if (flushed.isNotBlank()) {
-          translateAndPublish(flushed)
+        if ((!pipeStarted || speechPipeFailedOver) && voskReadyInMemory) {
+          val flushed = app.voskEngine.flushFinalText()
+          if (flushed.isNotBlank()) {
+            translateAndPublish(flushed)
+          }
         }
       },
       onError = { err ->
@@ -192,7 +276,7 @@ class TranslationForegroundService : LifecycleService() {
 
     val settings = latestSettings
     app.sessionManager.updateTranslating(true)
-    app.sessionManager.publishStatus("جاري الترجمة محلياً (ML Kit)...")
+    app.sessionManager.publishStatus("جاري الترجمة للعربية...")
 
     app.mlKitEngine
       .translateToArabic(
@@ -200,34 +284,70 @@ class TranslationForegroundService : LifecycleService() {
         sourceLangCode = settings.sourceLanguageCode,
         skipArabic = settings.skipArabic,
       )
-      .onSuccess { arabic ->
+      .onSuccess { outcome ->
+        val arabic = outcome.translatedText
         if (arabic.isBlank()) {
           app.sessionManager.updateTranslating(false)
-          app.sessionManager.publishStatus("يستمع الآن (بدون نت)")
+          app.sessionManager.publishStatus("يستمع الآن...")
         } else {
           val now = System.currentTimeMillis()
+          lastResolvedSourceLang = outcome.resolvedSourceLangCode
+          sessionSegmentCount++
           app.repository.saveTranslation(
             sourceText = cleanSource,
             translatedText = arabic,
-            sourceLang = settings.sourceLanguageCode,
+            sourceLang = outcome.resolvedSourceLangCode,
             timestamp = now,
+            sessionId = currentSessionId,
           )
+          currentSessionId?.let { sid ->
+            val elapsedSeconds = ((now - sessionStartTimestamp) / 1000L).coerceAtLeast(1L)
+            app.repository.updateSessionProgress(
+              sessionId = sid,
+              endTimestamp = now,
+              durationSeconds = elapsedSeconds,
+              translatedCount = sessionSegmentCount,
+              sourceLang = lastResolvedSourceLang,
+            )
+          }
           app.sessionManager.publishTranslation(
             sourceText = cleanSource,
             translatedText = arabic,
-            sourceLang = settings.sourceLanguageCode,
+            sourceLang = outcome.resolvedSourceLangCode,
             timestampMs = now,
           )
-          app.sessionManager.publishStatus("ترجمة فورية محلية نشطة")
+          app.sessionManager.publishStatus("الترجمة الفورية نشطة")
         }
       }
       .onFailure { err ->
-        app.sessionManager.publishError(err.message ?: "فشلت ترجمة ML Kit المحلية")
+        app.sessionManager.publishError(err.message ?: "تعذرت الترجمة الفورية")
       }
   }
 
+  private fun finalizeSessionRecord() {
+    val sid = currentSessionId ?: return
+    val endNow = System.currentTimeMillis()
+    val elapsed = ((endNow - sessionStartTimestamp) / 1000L).coerceAtLeast(0L)
+    val count = sessionSegmentCount
+    val lang = lastResolvedSourceLang
+    currentSessionId = null
+    app.appScope.launch {
+      runCatching {
+        app.repository.updateSessionProgress(
+          sessionId = sid,
+          endTimestamp = endNow,
+          durationSeconds = elapsed,
+          translatedCount = count,
+          sourceLang = lang,
+        )
+      }
+    }
+  }
+
   private fun stopCaptureAndSelf() {
+    speechBridge.stop()
     audioCaptureManager.stop()
+    finalizeSessionRecord()
     projectionCallback?.let { cb -> runCatching { mediaProjection?.unregisterCallback(cb) } }
     projectionCallback = null
     runCatching { mediaProjection?.stop() }
@@ -245,13 +365,15 @@ class TranslationForegroundService : LifecycleService() {
   }
 
   override fun onDestroy() {
+    speechBridge.stop()
     audioCaptureManager.stop()
+    finalizeSessionRecord()
     projectionCallback?.let { cb -> runCatching { mediaProjection?.unregisterCallback(cb) } }
     runCatching { mediaProjection?.stop() }
     mediaProjection = null
     app.sessionManager.updateRunning(
       running = false,
-      status = "جاهز للالتقاط (بدون إنترنت)",
+      status = "الخدمة الفورية جاهزة • بدون قيود",
       mode = "خامل",
     )
     super.onDestroy()

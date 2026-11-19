@@ -38,3 +38,37 @@ interface TranslationHistoryDao {
   @Query("DELETE FROM translation_history WHERE timestamp < :cutoffTimestamp")
   suspend fun deleteOlderThan(cutoffTimestamp: Long)
 }
+
+@Dao
+interface TranslationSessionDao {
+  @Query("SELECT * FROM translation_sessions ORDER BY startTimestamp DESC")
+  fun getAllSessionsFlow(): Flow<List<TranslationSessionEntity>>
+
+  @Query("SELECT * FROM translation_sessions ORDER BY startTimestamp DESC LIMIT 1")
+  fun getLatestSessionFlow(): Flow<TranslationSessionEntity?>
+
+  @Insert(onConflict = OnConflictStrategy.REPLACE)
+  suspend fun insertSession(session: TranslationSessionEntity): Long
+
+  @Query(
+    "UPDATE translation_sessions " +
+      "SET endTimestamp = :endTimestamp, " +
+      "durationSeconds = :durationSeconds, " +
+      "translatedCount = :translatedCount, " +
+      "sourceLang = :sourceLang " +
+      "WHERE id = :id"
+  )
+  suspend fun updateSessionProgress(
+    id: Long,
+    endTimestamp: Long,
+    durationSeconds: Long,
+    translatedCount: Int,
+    sourceLang: String,
+  )
+
+  @Query("DELETE FROM translation_sessions WHERE id = :id")
+  suspend fun deleteSessionById(id: Long)
+
+  @Query("DELETE FROM translation_sessions")
+  suspend fun deleteAllSessions()
+}

@@ -37,6 +37,7 @@ datastorePreferences = "1.1.7"
 robolectric = "4.16.1"
 voskAndroid = "0.3.47"
 mlkitTranslate = "17.0.2"
+mlkitLanguageId = "17.0.6"
 firebaseBom = "34.17.0"
 secretsGradlePlugin = "2.0.1"
 googleServices = "4.5.0"
@@ -90,6 +91,7 @@ androidx-datastore-preferences = { group = "androidx.datastore", name = "datasto
 robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
 vosk-android = { group = "com.alphacephei", name = "vosk-android", version.ref = "voskAndroid" }
 mlkit-translate = { group = "com.google.mlkit", name = "translate", version.ref = "mlkitTranslate" }
+mlkit-language-id = { group = "com.google.mlkit", name = "language-id", version.ref = "mlkitLanguageId" }
 
 
 [plugins]

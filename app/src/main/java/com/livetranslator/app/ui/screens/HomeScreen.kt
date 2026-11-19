@@ -10,12 +10,6 @@ import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -36,15 +30,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -53,11 +43,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -72,30 +59,38 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.livetranslator.app.LiveTranslatorApp
 import com.livetranslator.app.R
+import com.livetranslator.app.data.model.AudioSourcePreference
 import com.livetranslator.app.data.model.SupportedLanguages
 import com.livetranslator.app.service.OverlayService
 import com.livetranslator.app.service.TranslationForegroundService
 import com.livetranslator.app.ui.theme.AmberAccent
+import com.livetranslator.app.ui.theme.AppBrandBadge
 import com.livetranslator.app.ui.theme.ArabicFontRegistry
-import com.livetranslator.app.ui.theme.BrightAmethyst
+import com.livetranslator.app.ui.theme.CircularGlassIconButton
+import com.livetranslator.app.ui.theme.CrispWhite
 import com.livetranslator.app.ui.theme.ElectricViolet
 import com.livetranslator.app.ui.theme.EmeraldAccent
+import com.livetranslator.app.ui.theme.GlassCardFillStrong
+import com.livetranslator.app.ui.theme.GlassGradientPillButton
 import com.livetranslator.app.ui.theme.GlassSurfaceCard
-import com.livetranslator.app.ui.theme.HomeRadialBottomRight
-import com.livetranslator.app.ui.theme.LavenderWhite
-import com.livetranslator.app.ui.theme.MutedViolet
+import com.livetranslator.app.ui.theme.GlassWhiteBorder
+import com.livetranslator.app.ui.theme.GlowingScreenTitle
+import com.livetranslator.app.ui.theme.LightGrayText
+import com.livetranslator.app.ui.theme.MutedGrayText
 import com.livetranslator.app.ui.theme.RoseError
 import com.livetranslator.app.ui.theme.SoftLavender
-import com.livetranslator.app.ui.theme.VioletOutline
 import com.livetranslator.app.ui.theme.VoidSurfaceVariant
-import com.livetranslator.app.ui.theme.homeRadialBackground
 import com.livetranslator.app.ui.viewmodel.MainViewModel
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun HomeScreen(
   viewModel: MainViewModel,
-  onNavigateToSettings: () -> Unit,
-  onNavigateToAbout: () -> Unit,
+  onNavigateToDevices: () -> Unit,
+  onNavigateToAccount: () -> Unit,
+  onNavigateToStyle: () -> Unit,
 ) {
   val context = LocalContext.current
   val app = context.applicationContext as LiveTranslatorApp
@@ -104,10 +99,21 @@ fun HomeScreen(
   val sessionState by viewModel.sessionState.collectAsStateWithLifecycle()
   val modelsState by viewModel.modelsState.collectAsStateWithLifecycle()
   val latestHistory by viewModel.latestTranslation.collectAsStateWithLifecycle()
+  val latestSession by viewModel.latestSession.collectAsStateWithLifecycle()
 
   var hasOverlayPermission by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
+  var hasMicPermission by remember {
+    mutableStateOf(
+      ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+        PackageManager.PERMISSION_GRANTED
+    )
+  }
+
   LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
     hasOverlayPermission = Settings.canDrawOverlays(context)
+    hasMicPermission =
+      ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+        PackageManager.PERMISSION_GRANTED
   }
 
   val overlayPermissionLauncher =
@@ -125,12 +131,13 @@ fun HomeScreen(
           }
         ContextCompat.startForegroundService(context, serviceIntent)
       } else {
-        app.sessionManager.publishError("تم إلغاء إذن التقاط الشاشة", expandOverlay = false)
+        app.sessionManager.publishError("تم إلغاء إذن التقاط صوت الهاتف", expandOverlay = false)
       }
     }
 
   val micPermissionLauncher =
     rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+      hasMicPermission = granted
       if (granted) {
         val serviceIntent =
           Intent(context, TranslationForegroundService::class.java).apply {
@@ -138,48 +145,67 @@ fun HomeScreen(
           }
         ContextCompat.startForegroundService(context, serviceIntent)
       } else {
-        app.sessionManager.publishError("يجب منح إذن الميكروفون للتجربة السريعة", expandOverlay = false)
+        app.sessionManager.publishError("يرجى منح إذن الميكروفون للالتقاط", expandOverlay = false)
       }
     }
 
-  val infinite = rememberInfiniteTransition(label = "fabPulse")
-  val pulseScale by
-    infinite.animateFloat(
-      initialValue = 1f,
-      targetValue = if (sessionState.isRunning) 1.18f else 1.05f,
-      animationSpec = infiniteRepeatable(tween(1100), RepeatMode.Reverse),
-      label = "fabRing",
-    )
-
-  val activeArabicText =
-    sessionState.lastTranslatedText.ifBlank { latestHistory?.translatedText.orEmpty() }
-  val activeSourceText =
-    sessionState.lastPartialSource.ifBlank {
-      sessionState.lastSourceText.ifBlank { latestHistory?.sourceText.orEmpty() }
+  fun startOrStopTranslation() {
+    if (sessionState.isRunning) {
+      val stopIntent =
+        Intent(context, TranslationForegroundService::class.java).apply {
+          action = TranslationForegroundService.ACTION_STOP
+        }
+      context.startService(stopIntent)
+      return
     }
+    if (!Settings.canDrawOverlays(context)) {
+      overlayPermissionLauncher.launch(
+        Intent(
+          Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+          Uri.parse("package:${context.packageName}"),
+        )
+      )
+      return
+    }
+    if (settings.audioSourcePreference == AudioSourcePreference.MICROPHONE) {
+      if (hasMicPermission) {
+        val serviceIntent =
+          Intent(context, TranslationForegroundService::class.java).apply {
+            action = TranslationForegroundService.ACTION_START_MIC_ONLY
+          }
+        ContextCompat.startForegroundService(context, serviceIntent)
+      } else {
+        micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+      }
+    } else {
+      val mgr =
+        context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+      projectionLauncher.launch(mgr.createScreenCaptureIntent())
+    }
+  }
 
-  val statusChipColor =
+  val statusDotColor =
     when {
       sessionState.lastError != null || modelsState.errorMessage != null -> RoseError
-      modelsState.isDownloading -> AmberAccent
       sessionState.isRunning -> EmeraldAccent
-      modelsState.allReady -> SoftLavender
-      else -> AmberAccent
+      modelsState.isDownloading -> AmberAccent
+      else -> SoftLavender
     }
 
-  val statusChipLabel =
+  val statusPillText =
     when {
-      sessionState.lastError != null -> sessionState.lastError ?: "حدث خطأ"
+      sessionState.lastError != null -> sessionState.lastError ?: "تنبيه في الخدمة"
       modelsState.isDownloading -> modelsState.stageMessage
-      modelsState.errorMessage != null -> modelsState.errorMessage ?: "تعذر تنزيل النماذج"
-      sessionState.isBubbleSnoozed -> "الفقاعة مخفية مؤقتاً (5 د)"
       sessionState.isRunning -> "${sessionState.statusMessage} • ${sessionState.engineMode}"
-      modelsState.allReady -> "جاهز للعمل 100% بدون إنترنت"
-      else -> "يلزم تنزيل النماذج المحلية لأول مرة"
+      else -> "الخدمة الفورية جاهزة • بدون قيود"
     }
+
+  val currentSourceLang = SupportedLanguages.findByCode(settings.sourceLanguageCode)
+  val activeArabicText =
+    sessionState.lastTranslatedText.ifBlank { latestHistory?.translatedText.orEmpty() }
 
   Box(
-    modifier = Modifier.fillMaxSize().homeRadialBackground().testTag("home_screen"),
+    modifier = Modifier.fillMaxSize().testTag("home_screen"),
     contentAlignment = Alignment.TopCenter,
   ) {
     Column(
@@ -188,29 +214,289 @@ fun HomeScreen(
           .widthIn(max = 600.dp)
           .verticalScroll(rememberScrollState())
           .padding(horizontal = 20.dp, vertical = 16.dp),
-      horizontalAlignment = Alignment.CenterHorizontally,
+      horizontalAlignment = Alignment.Start,
     ) {
-      // Top header
+      // Top Bar matching screenshot hierarchy
       Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
       ) {
-        Column(modifier = Modifier.weight(1f)) {
-          Text(
-            text = stringResource(R.string.app_name),
-            style = MaterialTheme.typography.headlineMedium,
-            color = LavenderWhite,
+        Row(
+          horizontalArrangement = Arrangement.spacedBy(10.dp),
+          verticalAlignment = Alignment.CenterVertically,
+        ) {
+          CircularGlassIconButton(
+            iconRes = R.drawable.ic_person,
+            contentDescription = "حسابي",
+            onClick = onNavigateToAccount,
+            modifier = Modifier.testTag("home_account_button"),
           )
-          Text(
-            text = stringResource(R.string.app_subtitle),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MutedViolet,
+          CircularGlassIconButton(
+            iconRes = R.drawable.ic_brush,
+            contentDescription = "تخصيص شكل الترجمة",
+            onClick = onNavigateToStyle,
+            tint = if (sessionState.isOverlayActive) SoftLavender else CrispWhite,
+            modifier = Modifier.testTag("home_style_button"),
           )
         }
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-          IconButton(
+        AppBrandBadge()
+      }
+
+      Spacer(modifier = Modifier.height(18.dp))
+
+      GlowingScreenTitle(
+        text = stringResource(R.string.home_headline),
+        fontSizeSp = 30,
+      )
+
+      Spacer(modifier = Modifier.height(12.dp))
+
+      // Status Pill linking to Devices / Engine details
+      Row(
+        modifier =
+          Modifier.clip(RoundedCornerShape(50))
+            .background(GlassCardFillStrong)
+            .border(1.dp, statusDotColor.copy(alpha = 0.45f), RoundedCornerShape(50))
+            .clickable(onClick = onNavigateToDevices)
+            .padding(horizontal = 14.dp, vertical = 8.dp)
+            .testTag("status_chip"),
+        verticalAlignment = Alignment.CenterVertically,
+      ) {
+        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(statusDotColor))
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+          text = statusPillText,
+          color = CrispWhite,
+          style = MaterialTheme.typography.labelLarge,
+          maxLines = 1,
+          modifier = Modifier.weight(1f, fill = false),
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Icon(
+          painter = painterResource(id = R.drawable.ic_chevron_right),
+          contentDescription = null,
+          tint = LightGrayText,
+          modifier = Modifier.size(14.dp),
+        )
+      }
+
+      if (modelsState.isDownloading) {
+        Spacer(modifier = Modifier.height(12.dp))
+        GlassSurfaceCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 18.dp) {
+          Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+              Text(modelsState.stageMessage, color = CrispWhite, style = MaterialTheme.typography.labelLarge)
+              Text("${modelsState.progressPercent}%", color = SoftLavender, style = MaterialTheme.typography.labelLarge)
+            }
+            LinearProgressIndicator(
+              progress = { (modelsState.progressPercent / 100f).coerceIn(0.03f, 1f) },
+              modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
+              color = ElectricViolet,
+              trackColor = VoidSurfaceVariant,
+            )
+          }
+        }
+      }
+
+      Spacer(modifier = Modifier.height(18.dp))
+
+      // Card 1: Last Translation Session (matching Screenshot 3)
+      GlassSurfaceCard(
+        modifier = Modifier.fillMaxWidth().testTag("last_session_card"),
+        cornerRadius = 24.dp,
+      ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(18.dp)) {
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+              Icon(
+                painter = painterResource(id = R.drawable.ic_clock),
+                contentDescription = null,
+                tint = SoftLavender,
+                modifier = Modifier.size(18.dp),
+              )
+              Spacer(modifier = Modifier.width(8.dp))
+              Text(
+                text = stringResource(R.string.home_last_session),
+                style = MaterialTheme.typography.titleLarge,
+                color = CrispWhite,
+              )
+            }
+
+            Text(
+              text = "${currentSourceLang.displayName.substringBefore(" ")} ← عربي",
+              color = SoftLavender,
+              fontSize = 11.sp,
+              fontWeight = FontWeight.Bold,
+              modifier =
+                Modifier.clip(RoundedCornerShape(10.dp))
+                  .background(ElectricViolet.copy(alpha = 0.22f))
+                  .padding(horizontal = 10.dp, vertical = 4.dp),
+            )
+          }
+
+          Spacer(modifier = Modifier.height(12.dp))
+
+          if (sessionState.isRunning) {
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+              Text(
+                text =
+                  if (sessionState.audioLevel > 0.05f) "يلتقط صوت الهاتف الآن"
+                  else "في انتظار صوت مسموع...",
+                color = EmeraldAccent,
+                style = MaterialTheme.typography.labelLarge,
+              )
+              Text(
+                text = "جمل: ${sessionState.segmentsTranslated}",
+                color = SoftLavender,
+                style = MaterialTheme.typography.labelLarge,
+              )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Box(
+              modifier =
+                Modifier.fillMaxWidth()
+                  .height(6.dp)
+                  .clip(CircleShape)
+                  .background(VoidSurfaceVariant)
+            ) {
+              Box(
+                modifier =
+                  Modifier.fillMaxWidth(sessionState.audioLevel.coerceAtLeast(0.04f))
+                    .fillMaxHeight()
+                    .clip(CircleShape)
+                    .background(Brush.horizontalGradient(listOf(ElectricViolet, EmeraldAccent)))
+              )
+            }
+            if (activeArabicText.isNotBlank()) {
+              Spacer(modifier = Modifier.height(12.dp))
+              Text(
+                text = activeArabicText,
+                fontFamily = ArabicFontRegistry.fontFamilyFor(settings.overlayFont),
+                fontWeight = ArabicFontRegistry.composeWeightFor(settings.overlayFontWeight),
+                fontSize = 18.sp,
+                lineHeight = 27.sp,
+                color = CrispWhite,
+                textAlign = TextAlign.Start,
+                modifier = Modifier.fillMaxWidth(),
+              )
+            }
+          } else if (latestSession == null && activeArabicText.isBlank()) {
+            Text(
+              text = stringResource(R.string.home_no_sessions),
+              style = MaterialTheme.typography.bodyLarge,
+              color = LightGrayText,
+            )
+          } else {
+            val session = latestSession
+            if (session != null) {
+              val dateText =
+                remember(session.startTimestamp) {
+                  SimpleDateFormat("dd MMM • HH:mm", Locale("ar")).format(Date(session.startTimestamp))
+                }
+              val durationLabel = formatDurationArabic(session.durationSeconds)
+              Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+              ) {
+                Text(
+                  text = "$dateText • $durationLabel",
+                  color = LightGrayText,
+                  style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                  text = "${session.translatedCount} جملة",
+                  color = SoftLavender,
+                  style = MaterialTheme.typography.labelLarge,
+                )
+              }
+            }
+            if (activeArabicText.isNotBlank()) {
+              Spacer(modifier = Modifier.height(10.dp))
+              Text(
+                text = activeArabicText,
+                fontFamily = ArabicFontRegistry.fontFamilyFor(settings.overlayFont),
+                fontWeight = ArabicFontRegistry.composeWeightFor(settings.overlayFontWeight),
+                fontSize = 18.sp,
+                lineHeight = 26.sp,
+                color = CrispWhite,
+                maxLines = 2,
+                textAlign = TextAlign.Start,
+                modifier = Modifier.fillMaxWidth(),
+              )
+            }
+          }
+        }
+      }
+
+      Spacer(modifier = Modifier.height(22.dp))
+
+      // Section Title matching Screenshot 3
+      Text(
+        text = "الأذونات والخدمة",
+        style = MaterialTheme.typography.titleLarge,
+        color = CrispWhite,
+      )
+
+      Spacer(modifier = Modifier.height(10.dp))
+
+      // Card 2: Audio Capture & Overlay Permission Rows
+      GlassSurfaceCard(
+        modifier = Modifier.fillMaxWidth().testTag("permissions_service_card"),
+        cornerRadius = 24.dp,
+      ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+          PermissionServiceRow(
+            iconRes = R.drawable.ic_device_audio,
+            title = "التقاط صوت الهاتف",
+            subtitle = settings.audioSourcePreference.displayName,
+            isReady =
+              if (settings.audioSourcePreference == AudioSourcePreference.MICROPHONE) hasMicPermission
+              else true,
+            badgeText =
+              if (sessionState.isRunning) "نشط"
+              else if (settings.audioSourcePreference == AudioSourcePreference.MICROPHONE && !hasMicPermission) "منح الإذن"
+              else "جاهز",
+            onClick = {
+              if (settings.audioSourcePreference == AudioSourcePreference.MICROPHONE && !hasMicPermission) {
+                micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+              } else {
+                onNavigateToDevices()
+              }
+            },
+            testTag = "row_audio_permission",
+          )
+
+          HorizontalDivider(color = GlassWhiteBorder, thickness = 1.dp)
+
+          PermissionServiceRow(
+            iconRes = R.drawable.ic_bubble,
+            title = "العرض فوق التطبيقات",
+            subtitle =
+              if (hasOverlayPermission) {
+                if (sessionState.isOverlayActive) "الصندوق العائم ظاهر حالياً" else "اضغط لإظهار الصندوق العائم"
+              } else {
+                "مطلوب لإظهار الترجمة فوق الفيديو"
+              },
+            isReady = hasOverlayPermission,
+            badgeText =
+              when {
+                !hasOverlayPermission -> "تفعيل"
+                sessionState.isOverlayActive -> "ظاهر"
+                else -> "تشغيل"
+              },
             onClick = {
               if (!Settings.canDrawOverlays(context)) {
                 overlayPermissionLauncher.launch(
@@ -233,403 +519,121 @@ fun HomeScreen(
                 }
               }
             },
-            modifier =
-              Modifier.size(48.dp)
-                .clip(CircleShape)
-                .background(VoidSurfaceVariant)
-                .border(1.dp, VioletOutline, CircleShape)
-                .testTag("toggle_bubble_button"),
-          ) {
-            Icon(
-              painter = painterResource(id = R.drawable.ic_bubble),
-              contentDescription = "إظهار أو إخفاء الفقاعة العائمة",
-              tint = if (sessionState.isOverlayActive) ElectricViolet else MutedViolet,
-            )
-          }
-
-          IconButton(
-            onClick = onNavigateToAbout,
-            modifier =
-              Modifier.size(48.dp)
-                .clip(CircleShape)
-                .background(VoidSurfaceVariant)
-                .border(1.dp, VioletOutline, CircleShape)
-                .testTag("about_button"),
-          ) {
-            Icon(
-              painter = painterResource(id = R.drawable.ic_info),
-              contentDescription = "حول التطبيق",
-              tint = MutedViolet,
-            )
-          }
-        }
-      }
-
-      Spacer(modifier = Modifier.height(16.dp))
-
-      // Status chip
-      Row(
-        modifier =
-          Modifier.clip(RoundedCornerShape(50))
-            .background(statusChipColor.copy(alpha = 0.14f))
-            .border(1.dp, statusChipColor.copy(alpha = 0.45f), RoundedCornerShape(50))
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-            .testTag("status_chip"),
-        verticalAlignment = Alignment.CenterVertically,
-      ) {
-        Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(statusChipColor))
-        Spacer(modifier = Modifier.width(8.dp))
-        Text(
-          text = statusChipLabel,
-          color = LavenderWhite,
-          style = MaterialTheme.typography.labelLarge,
-          maxLines = 2,
-        )
-      }
-
-      // Offline Model Download / Readiness Card when not ready or downloading
-      if (modelsState.isDownloading || !modelsState.allReady) {
-        Spacer(modifier = Modifier.height(12.dp))
-        GlassSurfaceCard(modifier = Modifier.fillMaxWidth().testTag("offline_models_card"), cornerRadius = 16.dp) {
-          Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
-            Row(
-              modifier = Modifier.fillMaxWidth(),
-              horizontalArrangement = Arrangement.SpaceBetween,
-              verticalAlignment = Alignment.CenterVertically,
-            ) {
-              Text(
-                text = "النماذج المحلية (Vosk + ML Kit)",
-                style = MaterialTheme.typography.titleMedium,
-                color = LavenderWhite,
-              )
-              if (modelsState.isDownloading) {
-                Text(
-                  text = "${modelsState.progressPercent}%",
-                  style = MaterialTheme.typography.labelLarge,
-                  color = SoftLavender,
-                )
-              }
-            }
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-              text = modelsState.errorMessage ?: modelsState.stageMessage,
-              style = MaterialTheme.typography.bodyMedium,
-              color = if (modelsState.errorMessage != null) RoseError else MutedViolet,
-            )
-            if (modelsState.isDownloading) {
-              Spacer(modifier = Modifier.height(10.dp))
-              LinearProgressIndicator(
-                progress = { (modelsState.progressPercent / 100f).coerceIn(0.02f, 1f) },
-                modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
-                color = ElectricViolet,
-                trackColor = VoidSurfaceVariant,
-              )
-            } else {
-              Spacer(modifier = Modifier.height(10.dp))
-              Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-              ) {
-                Button(
-                  onClick = { viewModel.prepareModels(settings.sourceLanguageCode) },
-                  colors = ButtonDefaults.buttonColors(containerColor = ElectricViolet),
-                  shape = RoundedCornerShape(12.dp),
-                  modifier = Modifier.weight(1f).height(44.dp).testTag("download_models_button"),
-                ) {
-                  Text("تنزيل النماذج الآن", color = LavenderWhite)
-                }
-                TextButton(onClick = onNavigateToSettings, modifier = Modifier.height(44.dp)) {
-                  Text("اللغة", color = SoftLavender)
-                }
-              }
-            }
-          }
-        }
-      }
-
-      // Live audio level telemetry when running
-      if (sessionState.isRunning) {
-        Spacer(modifier = Modifier.height(12.dp))
-        GlassSurfaceCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 16.dp) {
-          Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
-            Row(
-              modifier = Modifier.fillMaxWidth(),
-              horizontalArrangement = Arrangement.SpaceBetween,
-              verticalAlignment = Alignment.CenterVertically,
-            ) {
-              Text(
-                text =
-                  if (sessionState.audioLevel > 0.05f) "يلتقط صوتاً مسموعاً الآن"
-                  else "في انتظار الصوت...",
-                style = MaterialTheme.typography.labelLarge,
-                color = if (sessionState.audioLevel > 0.05f) EmeraldAccent else MutedViolet,
-              )
-              Text(
-                text = "الجمل المترجمة: ${sessionState.segmentsTranslated}",
-                style = MaterialTheme.typography.labelSmall,
-                color = SoftLavender,
-              )
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            Box(
-              modifier =
-                Modifier.fillMaxWidth()
-                  .height(8.dp)
-                  .clip(CircleShape)
-                  .background(VoidSurfaceVariant)
-            ) {
-              Box(
-                modifier =
-                  Modifier.fillMaxWidth(sessionState.audioLevel.coerceAtLeast(0.03f))
-                    .fillMaxHeight()
-                    .clip(CircleShape)
-                    .background(Brush.horizontalGradient(listOf(ElectricViolet, EmeraldAccent)))
-              )
-            }
-          }
-        }
-      }
-
-      Spacer(modifier = Modifier.height(20.dp))
-
-      // Big Circular Start / Stop FAB
-      Box(contentAlignment = Alignment.Center, modifier = Modifier.size(204.dp)) {
-        Canvas(modifier = Modifier.size(204.dp)) {
-          drawCircle(
-            color =
-              (if (sessionState.isRunning) RoseError else ElectricViolet).copy(
-                alpha = if (sessionState.isRunning) 0.28f else 0.18f
-              ),
-            radius = (size.minDimension / 2f) * 0.88f * pulseScale,
-            style = Stroke(width = 2.dp.toPx()),
+            testTag = "row_overlay_permission",
           )
-          drawCircle(
-            color = SoftLavender.copy(alpha = 0.12f),
-            radius = (size.minDimension / 2f) * 0.74f * pulseScale,
-            style = Stroke(width = 1.5.dp.toPx()),
-          )
-        }
-
-        Box(
-          modifier =
-            Modifier.size(144.dp)
-              .scale(if (sessionState.isTranslating) 1.04f else 1f)
-              .shadow(
-                elevation = 20.dp,
-                shape = CircleShape,
-                ambientColor = ElectricViolet,
-                spotColor = BrightAmethyst,
-              )
-              .clip(CircleShape)
-              .background(
-                Brush.linearGradient(
-                  colors =
-                    if (sessionState.isRunning) {
-                      listOf(RoseError, BrightAmethyst)
-                    } else {
-                      listOf(ElectricViolet, BrightAmethyst, HomeRadialBottomRight)
-                    }
-                )
-              )
-              .border(2.dp, LavenderWhite.copy(alpha = 0.35f), CircleShape)
-              .clickable {
-                if (sessionState.isRunning) {
-                  val stopIntent =
-                    Intent(context, TranslationForegroundService::class.java).apply {
-                      action = TranslationForegroundService.ACTION_STOP
-                    }
-                  context.startService(stopIntent)
-                } else {
-                  if (!Settings.canDrawOverlays(context)) {
-                    overlayPermissionLauncher.launch(
-                      Intent(
-                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                        Uri.parse("package:${context.packageName}"),
-                      )
-                    )
-                    return@clickable
-                  }
-                  val mgr =
-                    context.getSystemService(Context.MEDIA_PROJECTION_SERVICE)
-                      as MediaProjectionManager
-                  projectionLauncher.launch(mgr.createScreenCaptureIntent())
-                }
-              }
-              .testTag("start_stop_fab"),
-          contentAlignment = Alignment.Center,
-        ) {
-          Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(
-              painter =
-                painterResource(
-                  id = if (sessionState.isRunning) R.drawable.ic_stop else R.drawable.ic_play
-                ),
-              contentDescription =
-                stringResource(
-                  if (sessionState.isRunning) R.string.home_stop_capture
-                  else R.string.home_start_capture
-                ),
-              tint = LavenderWhite,
-              modifier = Modifier.size(40.dp),
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-              text = if (sessionState.isRunning) "إيقاف" else "بدء صوت الشاشة",
-              style = MaterialTheme.typography.labelLarge,
-              color = LavenderWhite,
-              fontWeight = FontWeight.Bold,
-            )
-          }
-        }
-      }
-
-      if (!sessionState.isRunning) {
-        Spacer(modifier = Modifier.height(6.dp))
-        OutlinedButton(
-          onClick = {
-            if (!Settings.canDrawOverlays(context)) {
-              overlayPermissionLauncher.launch(
-                Intent(
-                  Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                  Uri.parse("package:${context.packageName}"),
-                )
-              )
-              return@OutlinedButton
-            }
-            val hasMic =
-              ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
-                PackageManager.PERMISSION_GRANTED
-            if (hasMic) {
-              val serviceIntent =
-                Intent(context, TranslationForegroundService::class.java).apply {
-                  action = TranslationForegroundService.ACTION_START_MIC_ONLY
-                }
-              ContextCompat.startForegroundService(context, serviceIntent)
-            } else {
-              micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-            }
-          },
-          shape = RoundedCornerShape(14.dp),
-          modifier = Modifier.height(44.dp).testTag("start_mic_button"),
-        ) {
-          Icon(
-            painter = painterResource(id = R.drawable.ic_mic),
-            contentDescription = null,
-            tint = SoftLavender,
-            modifier = Modifier.size(18.dp),
-          )
-          Spacer(modifier = Modifier.width(8.dp))
-          Text("تجربة سريعة عبر الميكروفون", color = SoftLavender)
-        }
-      }
-
-      if (!hasOverlayPermission) {
-        Spacer(modifier = Modifier.height(8.dp))
-        Button(
-          onClick = {
-            overlayPermissionLauncher.launch(
-              Intent(
-                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                Uri.parse("package:${context.packageName}"),
-              )
-            )
-          },
-          colors = ButtonDefaults.buttonColors(containerColor = VoidSurfaceVariant),
-          shape = RoundedCornerShape(12.dp),
-        ) {
-          Text("منح إذن النافذة العائمة", color = SoftLavender)
-        }
-      }
-
-      Spacer(modifier = Modifier.height(18.dp))
-
-      // Mini live preview card
-      GlassSurfaceCard(
-        modifier = Modifier.fillMaxWidth().testTag("mini_preview_card"),
-        cornerRadius = 20.dp,
-      ) {
-        Column(modifier = Modifier.fillMaxWidth().padding(18.dp)) {
-          Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-          ) {
-            Text(
-              text = stringResource(R.string.home_last_translation),
-              style = MaterialTheme.typography.titleMedium,
-              color = LavenderWhite,
-            )
-            val langName = SupportedLanguages.findByCode(settings.sourceLanguageCode).displayName
-            Text(
-              text = "$langName ← العربية",
-              style = MaterialTheme.typography.labelSmall,
-              color = SoftLavender,
-              modifier =
-                Modifier.clip(RoundedCornerShape(8.dp))
-                  .background(ElectricViolet.copy(alpha = 0.2f))
-                  .padding(horizontal = 8.dp, vertical = 4.dp),
-            )
-          }
-
-          Spacer(modifier = Modifier.height(12.dp))
-
-          if (activeArabicText.isBlank() && activeSourceText.isBlank()) {
-            Text(
-              text = stringResource(R.string.home_empty_preview),
-              style = MaterialTheme.typography.bodyMedium,
-              color = MutedViolet,
-            )
-          } else {
-            if (activeArabicText.isNotBlank()) {
-              Text(
-                text = activeArabicText,
-                fontFamily = ArabicFontRegistry.fontFamilyFor(settings.overlayFont),
-                fontSize = 20.sp,
-                lineHeight = 30.sp,
-                color = Color(settings.overlayTextColorArgb),
-                textAlign = TextAlign.Start,
-                modifier = Modifier.fillMaxWidth(),
-              )
-            }
-            if (activeSourceText.isNotBlank()) {
-              Spacer(modifier = Modifier.height(8.dp))
-              Text(
-                text = activeSourceText,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MutedViolet,
-              )
-            }
-          }
         }
       }
 
       Spacer(modifier = Modifier.height(14.dp))
 
-      // Clear guide on offline operation & floating bubble
-      GlassSurfaceCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 16.dp) {
-        Column(
-          modifier = Modifier.fillMaxWidth().padding(14.dp),
-          verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-          Text(
-            text = "ترجمة محلية 100% بدون إنترنت ولا مفاتيح",
-            style = MaterialTheme.typography.labelLarge,
-            color = LavenderWhite,
-          )
-          Text(
-            text = "• تفريغ الصوت يتم محلياً عبر Vosk، والترجمة للعربية عبر Google ML Kit مجاناً وبلا حدود.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MutedViolet,
-          )
-          Text(
-            text = "• اسحب الفقاعة العائمة لأي مكان • ضغطة لفتح البطاقة (تُخفى بعد 6 ثوانٍ) • ضغطة مطولة للإخفاء 5 دقائق.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = SoftLavender,
-          )
-        }
-      }
+      Text(
+        text = "تأكد أنك سمحت بالعرض فوق التطبيقات ثم اضغط «ابدأ الترجمة» لترجمة يوتيوب وأي صوت داخل الهاتف مباشرة.",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MutedGrayText,
+        lineHeight = 20.sp,
+      )
+
+      Spacer(modifier = Modifier.height(22.dp))
+
+      GlassGradientPillButton(
+        text =
+          if (sessionState.isRunning) stringResource(R.string.home_stop_cta)
+          else stringResource(R.string.home_start_cta),
+        onClick = { startOrStopTranslation() },
+        isActiveStop = sessionState.isRunning,
+        iconRes = if (sessionState.isRunning) R.drawable.ic_stop else R.drawable.ic_arrow_forward,
+        modifier = Modifier.testTag("start_stop_cta"),
+      )
 
       Spacer(modifier = Modifier.height(20.dp))
     }
   }
+}
+
+@Composable
+private fun PermissionServiceRow(
+  iconRes: Int,
+  title: String,
+  subtitle: String,
+  isReady: Boolean,
+  badgeText: String,
+  onClick: () -> Unit,
+  testTag: String,
+) {
+  val dotColor = if (isReady) EmeraldAccent else AmberAccent
+  Row(
+    modifier =
+      Modifier.fillMaxWidth()
+        .clickable(onClick = onClick)
+        .padding(horizontal = 18.dp, vertical = 16.dp)
+        .testTag(testTag),
+    horizontalArrangement = Arrangement.SpaceBetween,
+    verticalAlignment = Alignment.CenterVertically,
+  ) {
+    Row(
+      modifier = Modifier.weight(1f),
+      verticalAlignment = Alignment.CenterVertically,
+    ) {
+      Box(
+        modifier =
+          Modifier.size(40.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(VoidSurfaceVariant)
+            .border(1.dp, GlassWhiteBorder, RoundedCornerShape(12.dp)),
+        contentAlignment = Alignment.Center,
+      ) {
+        Icon(
+          painter = painterResource(id = iconRes),
+          contentDescription = title,
+          tint = SoftLavender,
+          modifier = Modifier.size(20.dp),
+        )
+      }
+
+      Spacer(modifier = Modifier.width(12.dp))
+
+      Column(modifier = Modifier.weight(1f)) {
+        Text(
+          text = title,
+          style = MaterialTheme.typography.titleMedium,
+          color = CrispWhite,
+        )
+        Text(
+          text = subtitle,
+          style = MaterialTheme.typography.bodyMedium,
+          color = MutedGrayText,
+          maxLines = 1,
+        )
+      }
+    }
+
+    Spacer(modifier = Modifier.width(10.dp))
+
+    Row(
+      verticalAlignment = Alignment.CenterVertically,
+      modifier =
+        Modifier.clip(RoundedCornerShape(50))
+          .background(dotColor.copy(alpha = 0.14f))
+          .border(1.dp, dotColor.copy(alpha = 0.45f), RoundedCornerShape(50))
+          .padding(horizontal = 12.dp, vertical = 6.dp),
+    ) {
+      Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(dotColor))
+      Spacer(modifier = Modifier.width(6.dp))
+      Text(
+        text = badgeText,
+        color = if (isReady) EmeraldAccent else AmberAccent,
+        fontSize = 12.sp,
+        fontWeight = FontWeight.Bold,
+      )
+    }
+  }
+}
+
+fun formatDurationArabic(durationSeconds: Long): String {
+  if (durationSeconds < 60L) {
+    return "${durationSeconds.coerceAtLeast(1L)} ثانية"
+  }
+  val minutes = durationSeconds / 60L
+  val seconds = durationSeconds % 60L
+  return if (seconds > 0L) "$minutes د $seconds ث" else "$minutes دقيقة"
 }

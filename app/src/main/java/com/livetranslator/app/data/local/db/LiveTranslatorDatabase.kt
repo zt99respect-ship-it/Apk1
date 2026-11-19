@@ -6,12 +6,13 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 
 @Database(
-  entities = [TranslationHistoryEntity::class],
-  version = 1,
+  entities = [TranslationHistoryEntity::class, TranslationSessionEntity::class],
+  version = 2,
   exportSchema = false,
 )
 abstract class LiveTranslatorDatabase : RoomDatabase() {
   abstract fun translationHistoryDao(): TranslationHistoryDao
+  abstract fun translationSessionDao(): TranslationSessionDao
 
   companion object {
     @Volatile private var instance: LiveTranslatorDatabase? = null
@@ -25,7 +26,7 @@ abstract class LiveTranslatorDatabase : RoomDatabase() {
                 LiveTranslatorDatabase::class.java,
                 "live_translator.db",
               )
-              .fallbackToDestructiveMigration(dropAllTables = false)
+              .fallbackToDestructiveMigration(dropAllTables = true)
               .build()
               .also { instance = it }
         }

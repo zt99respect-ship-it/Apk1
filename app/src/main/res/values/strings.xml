@@ -1,21 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">LiveTranslator</string>
-    <string name="app_subtitle">المترجم الفوري المجاني بدون إنترنت</string>
+    <string name="app_subtitle">ترجمة أصوات الهاتف الفورية إلى العربية</string>
 
-    <!-- Navigation -->
+    <!-- Bottom Navigation -->
     <string name="nav_home">الرئيسية</string>
-    <string name="nav_overlay">النافذة</string>
-    <string name="nav_history">السجل</string>
-    <string name="nav_settings">الإعدادات</string>
+    <string name="nav_summary">الملخص</string>
+    <string name="nav_devices">أجهزتي</string>
+    <string name="nav_account">حسابي</string>
 
     <!-- Notifications -->
     <string name="notification_channel_name">خدمة الترجمة الفورية</string>
-    <string name="notification_channel_desc">إشعار دائم للتحكم بالتقاط الصوت والفقاعة العائمة</string>
-    <string name="notification_title_active">LiveTranslator قيد التشغيل (بدون نت)</string>
-    <string name="notification_text_listening">يتم التقاط الصوت والتفريغ عبر Vosk والترجمة عبر ML Kit</string>
-    <string name="notification_title_standby">LiveTranslator في وضع الاستعداد</string>
-    <string name="notification_text_standby">الفقاعة العائمة جاهزة — اضغط لمتابعة الترجمة</string>
+    <string name="notification_channel_desc">إشعار دائم للتحكم بالتقاط صوت الهاتف والصندوق العائم</string>
+    <string name="notification_title_active">LiveTranslator يترجم الآن</string>
+    <string name="notification_text_listening">يتم التقاط صوت الهاتف وترجمته فورياً إلى العربية</string>
+    <string name="notification_title_standby">الصندوق العائم جاهز</string>
+    <string name="notification_text_standby">اضغط لفتح بطاقة الترجمة أو إيقافها</string>
     <string name="notification_action_stop">إيقاف</string>
 
     <!-- Onboarding -->
@@ -25,23 +25,24 @@
     <string name="onboarding_granted">تم منح الإذن</string>
 
     <!-- Home -->
-    <string name="home_start_capture">بدء الترجمة الفورية</string>
-    <string name="home_stop_capture">إيقاف الترجمة الفورية</string>
-    <string name="home_last_translation">آخر ترجمة فورية</string>
-    <string name="home_empty_preview">اضغط زر البدء ثم اختر Kick أو YouTube أو أي تطبيق بث لتظهر الترجمة العربية الفورية هنا وفي الفقاعة العائمة بدون إنترنت.</string>
-    <string name="home_models_downloading">جاري تجهيز نماذج الصوت والترجمة على الجهاز...</string>
+    <string name="home_headline">جاهز تترجم بالعربي؟</string>
+    <string name="home_start_cta">ابدأ الترجمة</string>
+    <string name="home_stop_cta">إيقاف الترجمة</string>
+    <string name="home_last_session">آخر جلسة ترجمة</string>
+    <string name="home_no_sessions">لم تبدأ أي جلسة ترجمة بعد.</string>
+
+    <!-- Summary -->
+    <string name="summary_title">الملخص</string>
+    <string name="summary_empty_title">لا توجد جلسات بعد</string>
+    <string name="summary_empty_subtitle">بعد أول جلسة ترجمة لصوت الهاتف سيظهر سجلها والنصوص المترجمة هنا.</string>
+    <string name="summary_search_hint">ابحث في الجلسات أو الترجمة العربية...</string>
+    <string name="summary_clear_title">مسح جميع الجلسات؟</string>
+    <string name="summary_clear_message">سيؤدي هذا إلى حذف سجل الجلسات والترجمات المحفوظة من هذا الجهاز نهائياً.</string>
+    <string name="summary_clear_confirm">مسح الكل</string>
+    <string name="summary_cancel">إلغاء</string>
 
     <!-- Overlay -->
     <string name="overlay_bubble_desc">فقاعة الترجمة العائمة</string>
-    <string name="overlay_close_desc">تصغير بطاقة الترجمة</string>
+    <string name="overlay_close_desc">تصغير صندوق الترجمة</string>
     <string name="overlay_snoozed_toast">تم إخفاء الفقاعة العائمة لمدة 5 دقائق</string>
-
-    <!-- History -->
-    <string name="history_search_hint">ابحث في السجل أو الترجمة العربية...</string>
-    <string name="history_empty_title">لا يوجد سجل ترجمة بعد</string>
-    <string name="history_empty_subtitle">تُحفظ الترجمات محلياً لمدة 30 يوماً ويمكنك تصديرها كملف نصي في أي وقت.</string>
-    <string name="history_clear_title">مسح السجل بالكامل؟</string>
-    <string name="history_clear_message">سيؤدي هذا إلى حذف جميع الترجمات المحفوظة من هذا الجهاز نهائياً.</string>
-    <string name="history_clear_confirm">مسح الكل</string>
-    <string name="history_cancel">إلغاء</string>
 </resources>

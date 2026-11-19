@@ -2,29 +2,48 @@ package com.livetranslator.app.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-val VoidBackground = Color(0xFF0A0416)
-val VoidSurface = Color(0xFF150A2E)
-val VoidSurfaceVariant = Color(0xFF1E0F3C)
-val ElectricViolet = Color(0xFF8B5CF6)
-val BrightAmethyst = Color(0xFFA855F7)
-val SoftLavender = Color(0xFFC084FC)
-val LavenderWhite = Color(0xFFF3E8FF)
-val MutedViolet = Color(0xFFA78BFA)
-val VioletOutline = Color(0x408B5CF6)
+// Core Dark Glassmorphism Palette
+val VoidBackground = Color(0xFF09090B)
+val VoidSurface = Color(0xFF14121D)
+val GlassCardFill = Color(0xA6161422)
+val GlassCardFillStrong = Color(0xCC181526)
+val VoidSurfaceVariant = Color(0xFF201C30)
 
-val HomeRadialTopLeft = Color(0xFF3B1A7A)
-val HomeRadialBottomRight = Color(0xFF5B21B6)
+val ElectricViolet = Color(0xFF8B5CF6)
+val DeepViolet = Color(0xFF6D28D9)
+val BrightAmethyst = Color(0xFFA855F7)
+val SoftLavender = Color(0xFFC4B5FD)
+
+val CrispWhite = Color(0xFFFFFFFF)
+val LavenderWhite = Color(0xFFF5F3FF)
+val LightGrayText = Color(0xFFD4D4D8)
+val MutedGrayText = Color(0xFFA1A1AA)
+val MutedViolet = Color(0xFFC4B5FD)
+
+val GlassWhiteBorder = Color(0x28FFFFFF)
+val VioletOutline = Color(0x528B5CF6)
+
+val AmbientGlowTop = Color(0xFF5B21B6)
+val AmbientGlowBottom = Color(0xFF4C1D95)
 
 val EmeraldAccent = Color(0xFF34D399)
 val AmberAccent = Color(0xFFFBBF24)
 val RoseError = Color(0xFFFB7185)
 
-val OverlaySwatchColors: List<Pair<String, Long>> =
+// Text color presets matching Translation Style screen
+val TextColorSwatches: List<Pair<String, Long>> =
   listOf(
-    "لافندر" to 0xFFF3E8FF,
     "أبيض" to 0xFFFFFFFF,
-    "بنفسجي" to 0xFFC084FC,
-    "أخضر" to 0xFF6EE7B7,
-    "ذهبي" to 0xFFFCD34D,
-    "سماوي" to 0xFF67E8F9,
+    "ذهبي" to 0xFFFACC15,
+    "رمادي" to 0xFFE4E4E7,
+    "سماوي" to 0xFF7DD3FC,
+  )
+
+// Box background color presets matching Translation Style screen
+val BoxColorSwatches: List<Pair<String, Long>> =
+  listOf(
+    "أسود داكن" to 0xFF09090B,
+    "بنفسجي داكن" to 0xFF140F24,
+    "كحلي" to 0xFF181826,
+    "رمادي زجاجي" to 0xFF27272A,
   )
