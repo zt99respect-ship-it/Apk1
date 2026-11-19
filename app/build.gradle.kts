@@ -2,6 +2,7 @@ plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.kotlin.compose)
   alias(libs.plugins.google.devtools.ksp)
+  alias(libs.plugins.google.services)
 }
 
 android {
@@ -106,6 +107,15 @@ dependencies {
   implementation(libs.vosk.android)
   implementation(libs.mlkit.translate)
   implementation(libs.mlkit.language.id)
+  implementation(libs.mlkit.text.recognition)
+  implementation(libs.androidx.work.runtime.ktx)
+
+  implementation(platform(libs.firebase.bom))
+  implementation(libs.firebase.firestore)
+  implementation(libs.firebase.auth)
+  implementation(libs.androidx.credentials)
+  implementation(libs.androidx.credentials.play.services)
+  implementation(libs.googleid)
 
   testImplementation(libs.junit)
   testImplementation(libs.androidx.junit)

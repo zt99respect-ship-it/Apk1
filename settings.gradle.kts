@@ -24,4 +24,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "LiveTranslator"
 
-include(":app")
+include(":app", ":controller")

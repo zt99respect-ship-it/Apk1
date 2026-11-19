@@ -52,8 +52,8 @@ class LiveTranslatorRobolectricTest {
   }
 
   @Test
-  fun `app name resource matches LiveTranslator`() {
-    assertEquals("LiveTranslator", context.getString(R.string.app_name))
+  fun `app name resource matches instant translator in Arabic`() {
+    assertEquals("ترجمة فورية", context.getString(R.string.app_name))
   }
 
   @Test
@@ -220,5 +220,75 @@ class LiveTranslatorRobolectricTest {
     assertEquals("ko", com.livetranslator.app.engine.MlKitTranslationEngine.detectScriptFast("안녕하세요 여러분"))
     assertEquals("ar", com.livetranslator.app.engine.MlKitTranslationEngine.detectScriptFast("مرحبا بكم جميعا"))
     assertEquals(null, com.livetranslator.app.engine.MlKitTranslationEngine.detectScriptFast("Hello world"))
+  }
+
+  @Test
+  fun `vosk reliability filter rejects filler noise and low confidence arabic guesses`() {
+    assertEquals(
+      false,
+      com.livetranslator.app.engine.VoskSpeechEngine.isReliableSpeech(
+        com.livetranslator.app.engine.VoskRecognitionOutput("uh", isFinal = true, avgConfidence = 0.95f)
+      ),
+    )
+    assertEquals(
+      false,
+      com.livetranslator.app.engine.VoskSpeechEngine.isReliableSpeech(
+        com.livetranslator.app.engine.VoskRecognitionOutput("sell him allah", isFinal = true, avgConfidence = 0.42f)
+      ),
+    )
+    assertEquals(
+      true,
+      com.livetranslator.app.engine.VoskSpeechEngine.isReliableSpeech(
+        com.livetranslator.app.engine.VoskRecognitionOutput("welcome back to the stream", isFinal = true, avgConfidence = 0.88f)
+      ),
+    )
+  }
+
+  @Test
+  fun `mlkit noise and phonetic arabic filter catches transliterated arabic and ota rules`() {
+    assertEquals(
+      true,
+      com.livetranslator.app.engine.MlKitTranslationEngine.isFilteredNoiseOrPhoneticArabic(
+        text = "wallah ya shabab",
+        skipArabic = true,
+      ),
+    )
+    assertEquals(
+      true,
+      com.livetranslator.app.engine.MlKitTranslationEngine.isFilteredNoiseOrPhoneticArabic(
+        text = "eh wallah",
+        skipArabic = true,
+        extraNoiseFilters = setOf("eh wallah"),
+      ),
+    )
+    assertEquals(
+      false,
+      com.livetranslator.app.engine.MlKitTranslationEngine.isFilteredNoiseOrPhoneticArabic(
+        text = "defeat the boss before timer ends",
+        skipArabic = true,
+      ),
+    )
+  }
+
+  @Test
+  fun `screen ocr meaningful word filter ignores pure symbols and numbers`() {
+    assertEquals(false, com.livetranslator.app.engine.ScreenCaptureOcrEngine.containsMeaningfulWord("1234 : / +"))
+    assertEquals(true, com.livetranslator.app.engine.ScreenCaptureOcrEngine.containsMeaningfulWord("Start Match"))
+  }
+
+  @Test
+  fun `ota update manager parses valid delta manifest json and ignores invalid input`() {
+    assertEquals(null, com.livetranslator.app.engine.OtaUpdateManager.parseManifestJson(""))
+    assertEquals(null, com.livetranslator.app.engine.OtaUpdateManager.parseManifestJson("{not-json"))
+
+    val parsed =
+      com.livetranslator.app.engine.OtaUpdateManager.parseManifestJson(
+        com.livetranslator.app.engine.OtaUpdateManager.sampleManifestJsonTemplate()
+      )
+    assertNotNull(parsed)
+    assertEquals(2, parsed?.patchVersion)
+    assertEquals("لعب رائع", parsed?.glossaryAdditions?.get("gg"))
+    assertEquals(true, parsed?.noiseFilterAdditions?.contains("eh wallah"))
+    assertEquals("تحديث جديد متاح لـ ترجمة فورية", parsed?.notificationTitle)
   }
 }

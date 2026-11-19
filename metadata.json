@@ -1,6 +1,6 @@
 {
-  "name": "LiveTranslator",
-  "description": "100% offline real-time system audio & stream translator to Arabic using Vosk on-device STT, Google ML Kit on-device translation, and a draggable floating overlay.",
+  "name": "ترجمة فورية",
+  "description": "Real-time system audio & screen translator to Arabic using on-device speech/OCR engines, ML Kit translation, OTA incremental rules, and a floating glass overlay.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

@@ -1,20 +1,26 @@
 package com.livetranslator.app.service
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import com.livetranslator.app.MainActivity
 import com.livetranslator.app.R
 
 object NotificationHelper {
 
   const val CHANNEL_ID = "live_translator_channel"
+  const val ALERTS_CHANNEL_ID = "live_translator_alerts_channel"
   const val TRANSLATION_NOTIFICATION_ID = 1001
   const val OVERLAY_NOTIFICATION_ID = 1002
+  const val UPDATE_ALERT_NOTIFICATION_ID = 2001
 
   fun ensureChannel(context: Context) {
     val manager = context.getSystemService(NotificationManager::class.java) ?: return
@@ -31,6 +37,65 @@ object NotificationHelper {
           }
       manager.createNotificationChannel(channel)
     }
+
+    if (manager.getNotificationChannel(ALERTS_CHANNEL_ID) == null) {
+      val alertsChannel =
+        NotificationChannel(
+            ALERTS_CHANNEL_ID,
+            context.getString(R.string.notification_alerts_channel_name),
+            NotificationManager.IMPORTANCE_HIGH,
+          )
+          .apply {
+            description = context.getString(R.string.notification_alerts_channel_desc)
+            setShowBadge(true)
+          }
+      manager.createNotificationChannel(alertsChannel)
+    }
+  }
+
+  fun showAlertNotification(
+    context: Context,
+    title: String,
+    body: String,
+    notificationId: Int = (System.currentTimeMillis() % 100_000).toInt() + 3000,
+    openUpdatesScreen: Boolean = false,
+  ): Boolean {
+    ensureChannel(context)
+    if (
+      Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+          PackageManager.PERMISSION_GRANTED
+    ) {
+      return false
+    }
+
+    val openIntent =
+      PendingIntent.getActivity(
+        context,
+        notificationId,
+        Intent(context, MainActivity::class.java).apply {
+          flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+          if (openUpdatesScreen) {
+            putExtra(MainActivity.EXTRA_OPEN_UPDATES_CENTER, true)
+          }
+        },
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+      )
+
+    val notification =
+      NotificationCompat.Builder(context, ALERTS_CHANNEL_ID)
+        .setSmallIcon(R.drawable.ic_bell)
+        .setContentTitle(title)
+        .setContentText(body)
+        .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+        .setAutoCancel(true)
+        .setContentIntent(openIntent)
+        .setPriority(NotificationCompat.PRIORITY_HIGH)
+        .build()
+
+    val manager = context.getSystemService(NotificationManager::class.java) ?: return false
+    manager.notify(notificationId, notification)
+    return true
   }
 
   fun buildTranslationNotification(

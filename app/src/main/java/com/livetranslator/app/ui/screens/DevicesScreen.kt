@@ -73,6 +73,7 @@ import com.livetranslator.app.R
 import com.livetranslator.app.data.model.AudioSourcePreference
 import com.livetranslator.app.data.model.SpeechEnginePreference
 import com.livetranslator.app.data.model.SupportedLanguages
+import com.livetranslator.app.data.model.TranslationMode
 import com.livetranslator.app.service.TranslationForegroundService
 import com.livetranslator.app.ui.theme.AmberAccent
 import com.livetranslator.app.ui.theme.AppBrandBadge
@@ -162,7 +163,9 @@ fun DevicesScreen(viewModel: DevicesViewModel) {
       )
       return
     }
-    if (settings.audioSourcePreference == AudioSourcePreference.MICROPHONE) {
+    if (settings.translationMode == TranslationMode.AUDIO_LIVE &&
+      settings.audioSourcePreference == AudioSourcePreference.MICROPHONE
+    ) {
       if (hasMicPermission) {
         val serviceIntent =
           Intent(context, TranslationForegroundService::class.java).apply {
@@ -203,6 +206,73 @@ fun DevicesScreen(viewModel: DevicesViewModel) {
       }
 
       GlowingScreenTitle(text = "أجهزتي", fontSizeSp = 30)
+
+      // Glass Card 0: Translation Mode Selector (Live Audio vs Screen OCR)
+      GlassSurfaceCard(modifier = Modifier.fillMaxWidth().testTag("translation_mode_card"), cornerRadius = 24.dp) {
+        Column(
+          modifier = Modifier.fillMaxWidth().padding(18.dp),
+          verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+          Text(
+            text = "وضع الترجمة الفورية",
+            style = MaterialTheme.typography.titleLarge,
+            color = CrispWhite,
+          )
+          Text(
+            text = "بدّل بين ترجمة أصوات الفيديوهات والبثوث أو قراءة نصوص الشاشة والألعاب مباشرة.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = LightGrayText,
+          )
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+          ) {
+            TranslationMode.entries.forEach { mode ->
+              val selected = settings.translationMode == mode
+              val iconRes =
+                if (mode == TranslationMode.AUDIO_LIVE) R.drawable.ic_device_audio
+                else R.drawable.ic_screen_scan
+              Column(
+                modifier =
+                  Modifier.weight(1f)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(
+                      if (selected) ElectricViolet.copy(alpha = 0.22f)
+                      else VoidSurfaceVariant.copy(alpha = 0.55f)
+                    )
+                    .border(
+                      width = if (selected) 1.5.dp else 1.dp,
+                      color = if (selected) ElectricViolet else GlassWhiteBorder,
+                      shape = RoundedCornerShape(16.dp),
+                    )
+                    .clickable { viewModel.setTranslationMode(mode) }
+                    .padding(12.dp)
+                    .testTag("devices_mode_${mode.key}"),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+              ) {
+                Icon(
+                  painter = painterResource(id = iconRes),
+                  contentDescription = mode.displayName,
+                  tint = if (selected) SoftLavender else LightGrayText,
+                  modifier = Modifier.size(22.dp),
+                )
+                Text(
+                  text = mode.displayName,
+                  color = CrispWhite,
+                  fontWeight = FontWeight.Bold,
+                  fontSize = 14.sp,
+                )
+                Text(
+                  text = mode.subtitle,
+                  color = MutedGrayText,
+                  fontSize = 11.sp,
+                  maxLines = 2,
+                )
+              }
+            }
+          }
+        }
+      }
 
       // Glass Card 1: Phone Audio Capture Mode & Live Status
       GlassSurfaceCard(modifier = Modifier.fillMaxWidth().testTag("phone_audio_card"), cornerRadius = 24.dp) {

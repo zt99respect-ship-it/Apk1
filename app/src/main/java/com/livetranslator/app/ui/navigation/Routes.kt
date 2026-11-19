@@ -9,4 +9,5 @@ object Routes {
   const val ACCOUNT = "account"
   const val TRANSLATION_STYLE = "translation_style"
   const val SETTINGS = "settings"
+  const val UPDATES_CENTER = "updates_center"
 }

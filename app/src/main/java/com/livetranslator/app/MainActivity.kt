@@ -59,6 +59,10 @@ class MainActivity : ComponentActivity() {
       intent.removeExtra(EXTRA_AUTO_START_TRANSLATION)
       app.sessionManager.requestStartFromOverlay()
     }
+    if (intent?.getBooleanExtra(EXTRA_OPEN_UPDATES_CENTER, false) == true) {
+      intent.removeExtra(EXTRA_OPEN_UPDATES_CENTER)
+      app.sessionManager.requestOpenUpdatesCenter()
+    }
   }
 
   override fun onActionModeStarted(mode: ActionMode?) {
@@ -83,6 +87,7 @@ class MainActivity : ComponentActivity() {
 
   companion object {
     const val EXTRA_AUTO_START_TRANSLATION = "extra_auto_start_translation"
+    const val EXTRA_OPEN_UPDATES_CENTER = "extra_open_updates_center"
   }
 }
 

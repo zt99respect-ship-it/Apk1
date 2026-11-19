@@ -9,6 +9,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -86,6 +87,7 @@ import com.livetranslator.app.data.model.OverlayBackground
 import com.livetranslator.app.data.model.OverlayFontWeight
 import com.livetranslator.app.data.model.OverlayPosition
 import com.livetranslator.app.data.model.OverlayStylePreset
+import com.livetranslator.app.data.model.TranslationMode
 import com.livetranslator.app.data.model.UserSettings
 import com.livetranslator.app.engine.TranslationSessionState
 import com.livetranslator.app.ui.theme.ArabicFontRegistry
@@ -199,6 +201,17 @@ class OverlayService : LifecycleService(), SavedStateRegistryOwner {
         updateWindowsVisibilityAndPosition(app.sessionManager.state.value, settings)
       }
     }
+
+    lifecycleScope.launch {
+      app.remoteControlConfig.collectLatest { remote ->
+        if (remote.maintenanceEnabled || !remote.allowOverlayBubble) {
+          removeAllOverlayViews()
+          app.sessionManager.updateOverlayActive(false)
+          stopForeground(Service.STOP_FOREGROUND_REMOVE)
+          stopSelf()
+        }
+      }
+    }
   }
 
   private fun snoozeBubbleFiveMinutes() {
@@ -264,9 +277,11 @@ class OverlayService : LifecycleService(), SavedStateRegistryOwner {
             onUpdateLayout = { updated ->
               val v = subtitleContainer ?: return@DraggableSubtitleFrameLayout
               runCatching { windowManager.updateViewLayout(v, updated) }
+              reportExcludedOverlayRects()
             },
             onDragFinished = { finalX, finalY ->
               isSubtitleDragging = false
+              reportExcludedOverlayRects()
               lifecycleScope.launch {
                 app.repository.setOverlayCustomPosition(finalX, finalY)
               }
@@ -311,6 +326,16 @@ class OverlayService : LifecycleService(), SavedStateRegistryOwner {
                 sessionState = sessionState,
                 settings = settings,
                 onClosePanel = { app.sessionManager.setControlPanelOpen(false) },
+                onSelectMode = { mode ->
+                  lifecycleScope.launch { app.repository.setTranslationMode(mode) }
+                },
+                onSnapScreenNow = {
+                  val snapIntent =
+                    Intent(this@OverlayService, TranslationForegroundService::class.java).apply {
+                      action = TranslationForegroundService.ACTION_SNAP_SCREEN_ONCE
+                    }
+                  runCatching { startService(snapIntent) }
+                },
                 onToggleTranslation = { handleToggleTranslationFromOverlay(sessionState, settings) },
                 onToggleSubtitleVisibility = {
                   app.sessionManager.setSubtitleVisible(!sessionState.isSubtitleVisible)
@@ -448,7 +473,11 @@ class OverlayService : LifecycleService(), SavedStateRegistryOwner {
       ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
         PackageManager.PERMISSION_GRANTED
 
-    if (settings.audioSourcePreference == AudioSourcePreference.MICROPHONE && hasMic) {
+    if (
+      settings.translationMode == TranslationMode.AUDIO_LIVE &&
+        settings.audioSourcePreference == AudioSourcePreference.MICROPHONE &&
+        hasMic
+    ) {
       val startMicIntent =
         Intent(this, TranslationForegroundService::class.java).apply {
           action = TranslationForegroundService.ACTION_START_MIC_ONLY
@@ -532,6 +561,35 @@ class OverlayService : LifecycleService(), SavedStateRegistryOwner {
         }
       }
     }
+    reportExcludedOverlayRects()
+  }
+
+  private fun reportExcludedOverlayRects() {
+    val rects = ArrayList<Rect>(3)
+    subtitleContainer?.let { v ->
+      if (v.visibility == View.VISIBLE) {
+        val loc = IntArray(2)
+        v.getLocationOnScreen(loc)
+        val w = v.width.coerceAtLeast(100)
+        val h = v.height.coerceAtLeast(80)
+        rects.add(Rect(loc[0] - 12, loc[1] - 12, loc[0] + w + 12, loc[1] + h + 12))
+      }
+    }
+    bubbleContainer?.let { v ->
+      if (v.visibility == View.VISIBLE) {
+        val loc = IntArray(2)
+        v.getLocationOnScreen(loc)
+        rects.add(Rect(loc[0] - 8, loc[1] - 8, loc[0] + v.width + 8, loc[1] + v.height + 8))
+      }
+    }
+    controlPanelContainer?.let { v ->
+      if (v.visibility == View.VISIBLE) {
+        val loc = IntArray(2)
+        v.getLocationOnScreen(loc)
+        rects.add(Rect(loc[0], loc[1], loc[0] + v.width, loc[1] + v.height))
+      }
+    }
+    app.screenOcrEngine.updateExcludedOverlayRects(rects)
   }
 
   private fun removeAllOverlayViews() {
@@ -807,6 +865,8 @@ private fun IndependentSubtitleBox(
       sessionState.lastTranslatedText.isNotBlank() -> sessionState.lastTranslatedText
       sessionState.isControlPanelOpen && !sessionState.isRunning ->
         "معاينة شكل ومكان الترجمة الفورية فوق الفيديو"
+      sessionState.isRunning && sessionState.activeTranslationMode == TranslationMode.SCREEN_OCR ->
+        "يراقب نصوص الشاشة لترجمتها للعربية..."
       sessionState.isRunning -> "يستمع لصوت الهاتف الآن..."
       else -> "معاينة صندوق الترجمة"
     }
@@ -885,6 +945,8 @@ private fun FloatingControlPanelCard(
   sessionState: TranslationSessionState,
   settings: UserSettings,
   onClosePanel: () -> Unit,
+  onSelectMode: (TranslationMode) -> Unit,
+  onSnapScreenNow: () -> Unit,
   onToggleTranslation: () -> Unit,
   onToggleSubtitleVisibility: () -> Unit,
   onToggleRepositionMode: () -> Unit,
@@ -907,7 +969,7 @@ private fun FloatingControlPanelCard(
     contentAlignment = Alignment.Center,
   ) {
     Surface(
-      modifier = Modifier.widthIn(max = 400.dp).fillMaxWidth().heightIn(max = 520.dp),
+      modifier = Modifier.widthIn(max = 400.dp).fillMaxWidth().heightIn(max = 540.dp),
       shape = RoundedCornerShape(24.dp),
       color = VoidSurface.copy(alpha = 0.94f),
       border =
@@ -962,6 +1024,53 @@ private fun FloatingControlPanelCard(
           }
         }
 
+        // Mode switcher: Audio vs Screen OCR
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+          TranslationMode.entries.forEach { mode ->
+            val selected = settings.translationMode == mode
+            Box(
+              modifier =
+                Modifier.weight(1f)
+                  .height(40.dp)
+                  .clip(RoundedCornerShape(12.dp))
+                  .background(
+                    if (selected) ElectricViolet.copy(alpha = 0.28f) else VoidSurfaceVariant
+                  )
+                  .border(
+                    1.dp,
+                    if (selected) ElectricViolet else GlassWhiteBorder,
+                    RoundedCornerShape(12.dp),
+                  )
+                  .clickable { onSelectMode(mode) },
+              contentAlignment = Alignment.Center,
+            ) {
+              Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                  painter =
+                    painterResource(
+                      id =
+                        if (mode == TranslationMode.SCREEN_OCR) R.drawable.ic_screen_scan
+                        else R.drawable.ic_device_audio
+                    ),
+                  contentDescription = null,
+                  tint = if (selected) CrispWhite else SoftLavender,
+                  modifier = Modifier.size(15.dp),
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                  text = mode.displayName,
+                  color = if (selected) CrispWhite else LightGrayText,
+                  fontSize = 12.sp,
+                  fontWeight = FontWeight.Bold,
+                )
+              }
+            }
+          }
+        }
+
         // Primary Start/Stop + Show/Hide Subtitle Box
         Row(
           modifier = Modifier.fillMaxWidth(),
@@ -1005,6 +1114,23 @@ private fun FloatingControlPanelCard(
               fontSize = 12.sp,
               fontWeight = FontWeight.Bold,
             )
+          }
+        }
+
+        if (sessionState.isRunning && settings.translationMode == TranslationMode.SCREEN_OCR) {
+          OutlinedButton(
+            onClick = onSnapScreenNow,
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth().height(40.dp),
+          ) {
+            Icon(
+              painter = painterResource(id = R.drawable.ic_screen_scan),
+              contentDescription = null,
+              tint = SoftLavender,
+              modifier = Modifier.size(15.dp),
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text("لقطة فورية لترجمة الشاشة الآن", color = SoftLavender, fontSize = 12.sp)
           }
         }
 

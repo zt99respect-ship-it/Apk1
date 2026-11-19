@@ -1,0 +1,141 @@
+{
+  "entities": {
+    "AdminOperator": {
+      "title": "AdminOperator",
+      "description": "Authorized admin operator allowed to manage remote updates, notifications, user accounts, and global app control.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID of the admin." },
+        "email": { "type": "string", "description": "Verified Google email address." },
+        "operatorUsername": { "type": "string", "description": "Admin operator console handle." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp on creation." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp on update." }
+      },
+      "required": ["uid", "email", "operatorUsername", "createdAt", "updatedAt"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Registered app user account with username, salted SHA-256 password digest, and unique hidden secret code.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID matching document ID." },
+        "email": { "type": "string", "description": "User Google email." },
+        "username": { "type": "string", "description": "Chosen username on first entry." },
+        "passwordHash": { "type": "string", "description": "SHA-256 salted password hex digest." },
+        "passwordSalt": { "type": "string", "description": "Per-user cryptographic hex salt." },
+        "secretCode": { "type": "string", "description": "Unique hidden code revealed by tapping the reveal button." },
+        "role": { "type": "string", "enum": ["user", "admin"], "description": "User role." },
+        "blocked": { "type": "boolean", "description": "Whether admin suspended this account." },
+        "blockedReason": { "type": "string", "description": "Optional reason shown when blocked." },
+        "appliedPatchVersion": { "type": "integer", "description": "Latest incremental hotfix version applied." },
+        "lastSeenAt": { "type": "string", "format": "date-time", "description": "Last background/foreground heartbeat timestamp." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp on creation." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp on update." }
+      },
+      "required": ["userId", "email", "username", "passwordHash", "passwordSalt", "secretCode", "role", "blocked", "appliedPatchVersion", "createdAt", "updatedAt"]
+    },
+    "InboxMessage": {
+      "title": "InboxMessage",
+      "description": "Direct notification or command targeted to a specific user UID.",
+      "type": "object",
+      "properties": {
+        "recipientUid": { "type": "string", "description": "Recipient Firebase UID." },
+        "title": { "type": "string", "description": "Notification title." },
+        "body": { "type": "string", "description": "Notification body text." },
+        "category": { "type": "string", "enum": ["update", "announcement", "warning", "direct"] },
+        "read": { "type": "boolean", "description": "Whether user acknowledged the message." },
+        "senderLabel": { "type": "string", "description": "Admin operator label." },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["recipientUid", "title", "body", "category", "read", "senderLabel", "createdAt", "updatedAt"]
+    },
+    "HotfixProfile": {
+      "title": "HotfixProfile",
+      "description": "Background incremental hotfix profile applied in-app without reinstalling APK.",
+      "type": "object",
+      "properties": {
+        "patchVersion": { "type": "integer", "description": "Incremental hotfix version number." },
+        "patchNotes": { "type": "string", "description": "Human-readable Arabic release notes." },
+        "mandatoryHotfix": { "type": "boolean", "description": "Whether app prompts immediate application." },
+        "glossaryAdditions": { "type": "object", "description": "Dynamic source-to-Arabic phrase overrides." },
+        "noiseFilterAdditions": { "type": "array", "description": "Extra noise/phonetic phrases to suppress." },
+        "latestAppVersionName": { "type": "string", "description": "Latest binary APK version name." },
+        "apkDownloadUrl": { "type": "string", "description": "Direct GitHub Release URL for Original app APK." },
+        "controllerApkUrl": { "type": "string", "description": "Direct GitHub Release URL for Controller app APK." },
+        "updatedBy": { "type": "string", "description": "Operator label who published the hotfix." },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["patchVersion", "patchNotes", "mandatoryHotfix", "glossaryAdditions", "noiseFilterAdditions", "latestAppVersionName", "apkDownloadUrl", "controllerApkUrl", "updatedBy", "createdAt", "updatedAt"]
+    },
+    "AppControlConfig": {
+      "title": "AppControlConfig",
+      "description": "Remote configuration document controlling features, maintenance mode, engines, banners, and GitHub linkage.",
+      "type": "object",
+      "properties": {
+        "maintenanceEnabled": { "type": "boolean" },
+        "maintenanceMessage": { "type": "string" },
+        "allowAudioLive": { "type": "boolean" },
+        "allowScreenOcr": { "type": "boolean" },
+        "allowOverlayBubble": { "type": "boolean" },
+        "forceSkipArabic": { "type": "boolean" },
+        "forcedSpeechEngine": { "type": "string" },
+        "forcedSourceLanguage": { "type": "string" },
+        "remoteAudioChunkSeconds": { "type": "integer" },
+        "remoteScreenScanIntervalMs": { "type": "integer" },
+        "showGlobalBanner": { "type": "boolean" },
+        "globalBannerTitle": { "type": "string" },
+        "globalBannerMessage": { "type": "string" },
+        "githubRepoSlug": { "type": "string" },
+        "otaFeedUrl": { "type": "string" },
+        "updatedBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["maintenanceEnabled", "maintenanceMessage", "allowAudioLive", "allowScreenOcr", "allowOverlayBubble", "forceSkipArabic", "forcedSpeechEngine", "forcedSourceLanguage", "remoteAudioChunkSeconds", "remoteScreenScanIntervalMs", "showGlobalBanner", "globalBannerTitle", "globalBannerMessage", "githubRepoSlug", "otaFeedUrl", "updatedBy", "createdAt", "updatedAt"]
+    },
+    "RemoteNotification": {
+      "title": "RemoteNotification",
+      "description": "Global broadcast notification dispatched from the Admin Controller app.",
+      "type": "object",
+      "properties": {
+        "audience": { "type": "string", "enum": ["all"] },
+        "title": { "type": "string" },
+        "body": { "type": "string" },
+        "category": { "type": "string", "enum": ["update", "announcement", "warning"] },
+        "updateAlert": { "type": "boolean" },
+        "senderLabel": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["audience", "title", "body", "category", "updateAlert", "senderLabel", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/admins/{uid}": {
+      "schema": { "$ref": "#/entities/AdminOperator" },
+      "description": "Admin operators registry."
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "User profiles keyed by Firebase Auth UID with hashed credentials and hidden secret codes."
+    },
+    "/users/{userId}/inbox/{messageId}": {
+      "schema": { "$ref": "#/entities/InboxMessage" },
+      "description": "Private targeted messages and notifications sent by Admin to a specific user."
+    },
+    "/hotfix_profiles/{profileId}": {
+      "schema": { "$ref": "#/entities/HotfixProfile" },
+      "description": "Singleton hotfix profile ('live') checked in background for live in-app updates."
+    },
+    "/app_control/{configId}": {
+      "schema": { "$ref": "#/entities/AppControlConfig" },
+      "description": "Singleton remote control configuration ('global') controlled by Admin Controller."
+    },
+    "/remote_notifications/{notifId}": {
+      "schema": { "$ref": "#/entities/RemoteNotification" },
+      "description": "Global remote notifications pushed to all users."
+    }
+  }
+}

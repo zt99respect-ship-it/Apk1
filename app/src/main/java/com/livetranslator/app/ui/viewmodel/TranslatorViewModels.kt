@@ -1,5 +1,6 @@
 package com.livetranslator.app.ui.viewmodel
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -12,10 +13,13 @@ import com.livetranslator.app.data.model.OverlayFontWeight
 import com.livetranslator.app.data.model.OverlayPosition
 import com.livetranslator.app.data.model.OverlayStylePreset
 import com.livetranslator.app.data.model.SpeechEnginePreference
+import com.livetranslator.app.data.model.TranslationMode
 import com.livetranslator.app.data.model.UserSettings
 import com.livetranslator.app.data.repository.TranslationRepository
 import com.livetranslator.app.engine.DownloadHelper
 import com.livetranslator.app.engine.OfflineModelsState
+import com.livetranslator.app.engine.OtaCenterState
+import com.livetranslator.app.engine.OtaUpdateManager
 import com.livetranslator.app.engine.TranslationSessionManager
 import com.livetranslator.app.engine.TranslationSessionState
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -31,6 +35,7 @@ class MainViewModel(
   private val repository: TranslationRepository,
   val sessionManager: TranslationSessionManager,
   private val downloadHelper: DownloadHelper,
+  private val otaUpdateManager: OtaUpdateManager,
 ) : ViewModel() {
 
   val settings: StateFlow<UserSettings> =
@@ -43,6 +48,8 @@ class MainViewModel(
   val sessionState: StateFlow<TranslationSessionState> = sessionManager.state
 
   val modelsState: StateFlow<OfflineModelsState> = downloadHelper.state
+
+  val otaState: StateFlow<OtaCenterState> = otaUpdateManager.state
 
   val latestTranslation: StateFlow<TranslationHistoryEntity?> =
     repository.latestTranslationFlow.stateIn(
@@ -60,6 +67,10 @@ class MainViewModel(
 
   fun completeOnboarding() {
     viewModelScope.launch { repository.setOnboardingCompleted(true) }
+  }
+
+  fun setTranslationMode(mode: TranslationMode) {
+    viewModelScope.launch { repository.setTranslationMode(mode) }
   }
 
   fun prepareModels(sourceLanguageCode: String) {
@@ -179,6 +190,10 @@ class DevicesViewModel(
 
   val modelsState: StateFlow<OfflineModelsState> = downloadHelper.state
 
+  fun setTranslationMode(mode: TranslationMode) {
+    viewModelScope.launch { repository.setTranslationMode(mode) }
+  }
+
   fun setAudioSourcePreference(preference: AudioSourcePreference) {
     viewModelScope.launch { repository.setAudioSourcePreference(preference) }
   }
@@ -210,6 +225,7 @@ class DevicesViewModel(
 class AccountViewModel(
   private val repository: TranslationRepository,
   private val downloadHelper: DownloadHelper,
+  private val otaUpdateManager: OtaUpdateManager,
 ) : ViewModel() {
 
   val settings: StateFlow<UserSettings> =
@@ -227,6 +243,8 @@ class AccountViewModel(
     )
 
   val modelsState: StateFlow<OfflineModelsState> = downloadHelper.state
+
+  val otaState: StateFlow<OtaCenterState> = otaUpdateManager.state
 
   fun setAccountLabel(label: String) {
     viewModelScope.launch { repository.setAccountLabel(label) }
@@ -257,13 +275,61 @@ class AccountViewModel(
   }
 }
 
+class UpdatesCenterViewModel(
+  private val app: LiveTranslatorApp,
+  private val repository: TranslationRepository,
+  private val otaUpdateManager: OtaUpdateManager,
+) : ViewModel() {
+
+  val settings: StateFlow<UserSettings> =
+    repository.settingsFlow.stateIn(
+      scope = viewModelScope,
+      started = SharingStarted.WhileSubscribed(5000),
+      initialValue = UserSettings(),
+    )
+
+  val otaState: StateFlow<OtaCenterState> = otaUpdateManager.state
+
+  fun checkUpdatesNow(feedUrl: String) {
+    viewModelScope.launch {
+      val clean = feedUrl.trim()
+      repository.setOtaFeedUrl(clean)
+      otaUpdateManager.checkFeedForUpdates(clean, notifyUser = true)
+    }
+  }
+
+  fun applyPendingPatch() {
+    viewModelScope.launch {
+      otaUpdateManager.applyAvailableManifest { appliedVersion ->
+        app.auth.currentUser?.uid?.let { uid ->
+          app.cloudSyncRepository.syncAppliedPatchVersion(uid, appliedVersion)
+        }
+      }
+    }
+  }
+
+  fun importLocalPatch(uri: Uri) {
+    viewModelScope.launch { otaUpdateManager.importLocalDeltaPatch(uri) }
+  }
+
+  fun sendCustomNotification(title: String, body: String, isUpdateAlert: Boolean) {
+    viewModelScope.launch {
+      otaUpdateManager.sendLocalNotification(
+        title = title,
+        body = body,
+        isUpdateAlert = isUpdateAlert,
+      )
+    }
+  }
+}
+
 class LiveTranslatorViewModelFactory(private val app: LiveTranslatorApp) :
   ViewModelProvider.Factory {
   @Suppress("UNCHECKED_CAST")
   override fun <T : ViewModel> create(modelClass: Class<T>): T =
     when {
       modelClass.isAssignableFrom(MainViewModel::class.java) ->
-        MainViewModel(app.repository, app.sessionManager, app.downloadHelper) as T
+        MainViewModel(app.repository, app.sessionManager, app.downloadHelper, app.otaUpdateManager) as T
       modelClass.isAssignableFrom(OverlayStyleViewModel::class.java) ->
         OverlayStyleViewModel(app.repository) as T
       modelClass.isAssignableFrom(SummaryViewModel::class.java) ->
@@ -271,7 +337,9 @@ class LiveTranslatorViewModelFactory(private val app: LiveTranslatorApp) :
       modelClass.isAssignableFrom(DevicesViewModel::class.java) ->
         DevicesViewModel(app.repository, app.sessionManager, app.downloadHelper) as T
       modelClass.isAssignableFrom(AccountViewModel::class.java) ->
-        AccountViewModel(app.repository, app.downloadHelper) as T
+        AccountViewModel(app.repository, app.downloadHelper, app.otaUpdateManager) as T
+      modelClass.isAssignableFrom(UpdatesCenterViewModel::class.java) ->
+        UpdatesCenterViewModel(app, app.repository, app.otaUpdateManager) as T
       else -> throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
     }
 }

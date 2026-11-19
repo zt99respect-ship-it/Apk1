@@ -19,6 +19,7 @@ import com.livetranslator.app.LiveTranslatorApp
 import com.livetranslator.app.data.model.AudioSourcePreference
 import com.livetranslator.app.data.model.SpeechEnginePreference
 import com.livetranslator.app.data.model.SupportedLanguages
+import com.livetranslator.app.data.model.TranslationMode
 import com.livetranslator.app.data.model.UserSettings
 import com.livetranslator.app.engine.AndroidSpeechRecognizerBridge
 import com.livetranslator.app.engine.AudioCaptureManager
@@ -73,7 +74,40 @@ class TranslationForegroundService : LifecycleService() {
 
     lifecycleScope.launch {
       app.repository.settingsFlow.collectLatest { settings ->
+        val modeChanged = settings.translationMode != latestSettings.translationMode
         latestSettings = settings
+        speechBridge.updateSkipArabic(settings.skipArabic || app.remoteControlConfig.value.forceSkipArabic)
+        if (modeChanged && app.sessionManager.state.value.isRunning) {
+          if (mediaProjection != null) {
+            switchRunningModeSafely(settings.translationMode)
+          } else if (settings.translationMode == TranslationMode.SCREEN_OCR) {
+            app.sessionManager.publishError(
+              "لتشغيل ترجمة الشاشة اضغط «ابدأ» مجدداً لمنح إذن التقاط الشاشة",
+              expandOverlay = true,
+            )
+            stopCaptureAndSelf()
+          }
+        }
+      }
+    }
+
+    lifecycleScope.launch {
+      app.remoteControlConfig.collectLatest { remote ->
+        speechBridge.updateSkipArabic(latestSettings.skipArabic || remote.forceSkipArabic)
+        if (app.sessionManager.state.value.isRunning) {
+          val activeMode = app.sessionManager.state.value.activeTranslationMode
+          val blockedByRemote =
+            remote.maintenanceEnabled ||
+              (activeMode == TranslationMode.AUDIO_LIVE && !remote.allowAudioLive) ||
+              (activeMode == TranslationMode.SCREEN_OCR && !remote.allowScreenOcr)
+          if (blockedByRemote) {
+            app.sessionManager.publishError(
+              remote.maintenanceMessage.ifBlank { "تم إيقاف الخدمة مؤقتاً من لوحة تحكم الإدارة." },
+              expandOverlay = false,
+            )
+            stopCaptureAndSelf()
+          }
+        }
       }
     }
   }
@@ -84,6 +118,9 @@ class TranslationForegroundService : LifecycleService() {
       ACTION_STOP -> {
         stopCaptureAndSelf()
         return START_NOT_STICKY
+      }
+      ACTION_SNAP_SCREEN_ONCE -> {
+        app.screenOcrEngine.requestImmediateSnap()
       }
       ACTION_START_MIC_ONLY -> {
         startForegroundSafely(micOnly = true)
@@ -128,13 +165,38 @@ class TranslationForegroundService : LifecycleService() {
     runCatching { ContextCompat.startForegroundService(this, overlayIntent) }
   }
 
+  private fun switchRunningModeSafely(nextMode: TranslationMode) {
+    val activeProjection = mediaProjection ?: return
+    stopStreamingJobsOnly()
+    speechBridge.stop()
+    audioCaptureManager.stop()
+    app.screenOcrEngine.stop()
+    lastCommittedSource = ""
+    lastLiveTranslatedSource = ""
+
+    if (nextMode == TranslationMode.SCREEN_OCR) {
+      startScreenOcrPipeline(activeProjection)
+    } else {
+      lifecycleScope.launch {
+        prepareAndStartAudioPipeline(
+          projection = activeProjection,
+          preferSystemPlayback = latestSettings.audioSourcePreference != AudioSourcePreference.MICROPHONE,
+        )
+      }
+    }
+  }
+
   private fun beginTranslationPipeline(micOnly: Boolean) {
     stopStreamingJobsOnly()
+    app.screenOcrEngine.stop()
 
     lifecycleScope.launch {
       latestSettings = app.repository.getCurrentSettings()
+      val effectiveMode =
+        if (micOnly) TranslationMode.AUDIO_LIVE else latestSettings.translationMode
       val effectiveMicOnly =
-        micOnly || latestSettings.audioSourcePreference == AudioSourcePreference.MICROPHONE
+        effectiveMode == TranslationMode.AUDIO_LIVE &&
+          (micOnly || latestSettings.audioSourcePreference == AudioSourcePreference.MICROPHONE)
 
       sessionStartTimestamp = System.currentTimeMillis()
       sessionSegmentCount = 0
@@ -146,7 +208,11 @@ class TranslationForegroundService : LifecycleService() {
       livePartialFlow.value = null
 
       val audioModeLabel =
-        if (effectiveMicOnly) "الميكروفون" else "صوت النظام (الهاتف)"
+        when {
+          effectiveMode == TranslationMode.SCREEN_OCR -> "ترجمة الشاشة (OCR)"
+          effectiveMicOnly -> "الميكروفون"
+          else -> "صوت النظام (الهاتف)"
+        }
 
       val createdId =
         app.repository.createSession(
@@ -158,9 +224,12 @@ class TranslationForegroundService : LifecycleService() {
 
       app.sessionManager.updateRunning(
         running = true,
-        status = "جاري تهيئة البث اللحظي...",
+        status =
+          if (effectiveMode == TranslationMode.SCREEN_OCR) "جاري تشغيل ترجمة الشاشة..."
+          else "جاري تهيئة البث اللحظي...",
         mode = audioModeLabel,
         sessionId = createdId,
+        translationMode = effectiveMode,
       )
 
       if (!effectiveMicOnly) {
@@ -183,57 +252,89 @@ class TranslationForegroundService : LifecycleService() {
         }
       }
 
-      // Pre-warm ML Kit translator & sticky language on IO immediately
       app.mlKitEngine.resetStickyLanguage(latestSettings.sourceLanguageCode)
       val prewarmJob =
         lifecycleScope.launch(Dispatchers.IO) {
           app.mlKitEngine.prewarm(latestSettings.sourceLanguageCode)
         }
 
-      // Check if local Vosk model is already on disk -> load instantly (<150ms)
-      val existingVoskDir: File? =
-        app.downloadHelper.resolveVoskModelDir(latestSettings.sourceLanguageCode)
-      if (existingVoskDir != null) {
-        voskReadyInMemory = runCatching { app.voskEngine.loadModel(existingVoskDir) }.isSuccess
-      }
+      if (effectiveMode == TranslationMode.SCREEN_OCR) {
+        prewarmJob.join()
+        val projection = mediaProjection
+        if (projection == null) {
+          app.sessionManager.publishError("يرجى منح إذن التقاط الشاشة لتشغيل ترجمة الشاشة")
+          stopCaptureAndSelf()
+          return@launch
+        }
+        startScreenOcrPipeline(projection)
+      } else {
+        val existingVoskDir: File? =
+          app.downloadHelper.resolveVoskModelDir(latestSettings.sourceLanguageCode)
+        if (existingVoskDir != null) {
+          voskReadyInMemory = runCatching { app.voskEngine.loadModel(existingVoskDir) }.isSuccess
+        }
 
-      val wantsFlexiblePipe =
-        latestSettings.speechEnginePreference == SpeechEnginePreference.FLEXIBLE_AUTO &&
-          speechBridge.isPipeAvailable()
+        val wantsFlexiblePipe =
+          latestSettings.speechEnginePreference == SpeechEnginePreference.FLEXIBLE_AUTO &&
+            speechBridge.isPipeAvailable()
 
-      if (!voskReadyInMemory) {
-        if (wantsFlexiblePipe) {
-          // Do NOT block live startup! Start SpeechRecognizer pipe immediately while preparing Vosk silently in background
-          backgroundModelPrepJob =
-            lifecycleScope.launch(Dispatchers.IO) {
-              val downloadedDir =
-                app.downloadHelper.ensureAllModelsReady(latestSettings.sourceLanguageCode).getOrNull()
-              if (downloadedDir != null) {
-                voskReadyInMemory = runCatching { app.voskEngine.loadModel(downloadedDir) }.isSuccess
+        if (!voskReadyInMemory) {
+          if (wantsFlexiblePipe) {
+            backgroundModelPrepJob =
+              lifecycleScope.launch(Dispatchers.IO) {
+                val downloadedDir =
+                  app.downloadHelper.ensureAllModelsReady(latestSettings.sourceLanguageCode).getOrNull()
+                if (downloadedDir != null) {
+                  voskReadyInMemory = runCatching { app.voskEngine.loadModel(downloadedDir) }.isSuccess
+                }
               }
+          } else {
+            val modelResult = app.downloadHelper.ensureAllModelsReady(latestSettings.sourceLanguageCode)
+            val downloadedDir = modelResult.getOrNull()
+            if (downloadedDir != null) {
+              voskReadyInMemory = runCatching { app.voskEngine.loadModel(downloadedDir) }.isSuccess
             }
-        } else {
-          // Vosk-only mode or pipe unavailable -> must prepare Vosk first
-          val modelResult = app.downloadHelper.ensureAllModelsReady(latestSettings.sourceLanguageCode)
-          val downloadedDir = modelResult.getOrNull()
-          if (downloadedDir != null) {
-            voskReadyInMemory = runCatching { app.voskEngine.loadModel(downloadedDir) }.isSuccess
           }
         }
+
+        prewarmJob.join()
+        val projectionActive =
+          !effectiveMicOnly && mediaProjection != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+        prepareAndStartAudioPipeline(
+          projection = if (projectionActive) mediaProjection else null,
+          preferSystemPlayback = !effectiveMicOnly,
+        )
       }
-
-      prewarmJob.join()
-
-      val projectionActive =
-        !effectiveMicOnly && mediaProjection != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
-      startInstantStreamingCapture(
-        projection = if (projectionActive) mediaProjection else null,
-        preferSystemPlayback = !effectiveMicOnly,
-      )
     }
   }
 
-  private fun startInstantStreamingCapture(
+  private fun startScreenOcrPipeline(projection: MediaProjection) {
+    app.sessionManager.updateRunning(
+      running = true,
+      status = "ترجمة الشاشة المباشرة نشطة...",
+      mode = "ترجمة الشاشة • فوري",
+      sessionId = currentSessionId,
+      translationMode = TranslationMode.SCREEN_OCR,
+    )
+
+    app.screenOcrEngine.startScreenOcrLoop(
+      scope = lifecycleScope,
+      mediaProjection = projection,
+      intervalMsProvider = {
+        app.remoteControlConfig.value.remoteScreenScanIntervalMs.toLong()
+          .takeIf { it in 450L..3000L } ?: latestSettings.screenScanIntervalMs
+      },
+      onExtractedScreenText = { screenText ->
+        translateAndPublishFinal(screenText)
+      },
+      onError = { err ->
+        app.sessionManager.publishError(err)
+        stopCaptureAndSelf()
+      },
+    )
+  }
+
+  private fun prepareAndStartAudioPipeline(
     projection: MediaProjection?,
     preferSystemPlayback: Boolean,
   ) {
@@ -245,8 +346,12 @@ class TranslationForegroundService : LifecycleService() {
       if (useFlexibleSpeechPipe) {
         speechBridge.startWithPcmPipe(
           sourceLanguageCode = latestSettings.sourceLanguageCode,
+          skipArabic = latestSettings.skipArabic,
           onPartial = { partial -> submitPartialForInstantTranslation(partial) },
           onFinal = { recognized -> submitFinalForCommit(recognized) },
+          onArabicSpeechDetected = {
+            app.sessionManager.markArabicSpeechSkipped()
+          },
           onFallbackToVosk = { reason ->
             speechPipeFailedOver = true
             app.sessionManager.publishStatus(
@@ -280,9 +385,9 @@ class TranslationForegroundService : LifecycleService() {
       status = "ترجمة لحظية فورية نشطة...",
       mode = activeModeLabel,
       sessionId = currentSessionId,
+      translationMode = TranslationMode.AUDIO_LIVE,
     )
 
-    // 1. Conflated instant partial translation pipeline (cancels stale hypotheses, ~10ms response)
     liveTranslationJob =
       lifecycleScope.launch(Dispatchers.Default) {
         livePartialFlow.collectLatest { signal ->
@@ -313,7 +418,6 @@ class TranslationForegroundService : LifecycleService() {
         }
       }
 
-    // 2. Finalized sentence commit + DB persistence queue (never slows down live captions)
     val commitChannel = Channel<String>(capacity = 16, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     finalSentenceChannel = commitChannel
     finalCommitJob =
@@ -323,7 +427,6 @@ class TranslationForegroundService : LifecycleService() {
         }
       }
 
-    // 3. Dedicated non-blocking PCM consumer (keeps AudioRecord.read() 100% stall-free)
     val frameChannel = Channel<ByteArray>(capacity = 40, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     pcmFrameChannel = frameChannel
     pcmConsumerJob =
@@ -336,7 +439,12 @@ class TranslationForegroundService : LifecycleService() {
               speechBridge.writePcmFrame(frame, frame.size, isSpeechActive = speechActive)
 
           if (!pipeFed && voskReadyInMemory) {
-            val output = app.voskEngine.acceptPcm(frame, frame.size)
+            val output =
+              app.voskEngine.acceptPcm(
+                frame,
+                frame.size,
+                filterLowConfidence = latestSettings.skipArabic,
+              )
             if (output != null) {
               if (output.isFinal) {
                 submitFinalForCommit(output.text)
@@ -364,7 +472,7 @@ class TranslationForegroundService : LifecycleService() {
       onNaturalPauseFlush = {
         if ((!pipeStarted || speechPipeFailedOver) && voskReadyInMemory) {
           lifecycleScope.launch(Dispatchers.IO) {
-            val flushed = app.voskEngine.flushFinalText()
+            val flushed = app.voskEngine.flushFinalText(filterLowConfidence = latestSettings.skipArabic)
             if (flushed.isNotBlank()) {
               submitFinalForCommit(flushed)
             }
@@ -449,7 +557,10 @@ class TranslationForegroundService : LifecycleService() {
             sourceLang = outcome.resolvedSourceLangCode,
             timestampMs = now,
           )
-          app.sessionManager.publishStatus("ترجمة لحظية فورية نشطة")
+          app.sessionManager.publishStatus(
+            if (settings.translationMode == TranslationMode.SCREEN_OCR) "ترجمة الشاشة نشطة"
+            else "ترجمة لحظية فورية نشطة"
+          )
         }
       }
       .onFailure { err ->
@@ -494,6 +605,7 @@ class TranslationForegroundService : LifecycleService() {
 
   private fun stopCaptureAndSelf() {
     stopStreamingJobsOnly()
+    app.screenOcrEngine.stop()
     speechBridge.stop()
     audioCaptureManager.stop()
     finalizeSessionRecord()
@@ -515,6 +627,7 @@ class TranslationForegroundService : LifecycleService() {
 
   override fun onDestroy() {
     stopStreamingJobsOnly()
+    app.screenOcrEngine.stop()
     speechBridge.stop()
     audioCaptureManager.stop()
     finalizeSessionRecord()
@@ -523,7 +636,7 @@ class TranslationForegroundService : LifecycleService() {
     mediaProjection = null
     app.sessionManager.updateRunning(
       running = false,
-      status = "الخدمة الفورية جاهزة • بدون قيود",
+      status = "الخدمة الفورية جاهزة • صوت وشاشة",
       mode = "خامل",
     )
     super.onDestroy()
@@ -533,6 +646,7 @@ class TranslationForegroundService : LifecycleService() {
     const val ACTION_SHOW = "com.livetranslator.app.action.START_TRANSLATION"
     const val ACTION_START = "com.livetranslator.app.action.START_TRANSLATION"
     const val ACTION_START_MIC_ONLY = "com.livetranslator.app.action.START_MIC_ONLY"
+    const val ACTION_SNAP_SCREEN_ONCE = "com.livetranslator.app.action.SNAP_SCREEN_ONCE"
     const val ACTION_STOP = "com.livetranslator.app.action.STOP_TRANSLATION"
   }
 }

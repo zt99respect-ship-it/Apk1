@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">متحكم ترجمة فورية</string>
+    <string name="tab_control">التحكم</string>
+    <string name="tab_hotfix">التصحيح الساخن</string>
+    <string name="tab_notifications">الإشعارات</string>
+    <string name="tab_users">المستخدمون</string>
+</resources>

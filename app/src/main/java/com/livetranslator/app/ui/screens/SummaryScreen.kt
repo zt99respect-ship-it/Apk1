@@ -211,7 +211,7 @@ fun SummaryScreen(
               onClick = {
                 val stamp =
                   SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(Date())
-                exportLauncher.launch("LiveTranslator_$stamp.txt")
+                exportLauncher.launch("InstantTranslator_$stamp.txt")
               },
               modifier =
                 Modifier.size(44.dp)

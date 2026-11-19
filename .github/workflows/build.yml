@@ -1,4 +1,4 @@
-name: Build Debug APK
+name: Build Dual APKs (Original + Admin Controller)
 
 on:
   push:
@@ -37,34 +37,45 @@ jobs:
             keytool -genkeypair -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
           fi
 
-      - name: Build Debug APK
+      - name: Build Both Debug APKs
         run: |
           if [ -x ./gradlew ]; then
-            ./gradlew assembleDebug --no-daemon
+            ./gradlew :app:assembleDebug :controller:assembleDebug --no-daemon
           else
-            gradle assembleDebug --no-daemon
+            gradle :app:assembleDebug :controller:assembleDebug --no-daemon
           fi
 
-      - name: Verify APK integrity
+      - name: Prepare Dual APK Outputs & Verify Integrity
         run: |
-          unzip -t app/build/outputs/apk/debug/app-debug.apk
-          ls -lh app/build/outputs/apk/debug/app-debug.apk
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk dist/InstantTranslator-Original.apk
+          cp controller/build/outputs/apk/debug/controller-debug.apk dist/InstantTranslator-AdminController.apk
+          unzip -t dist/InstantTranslator-Original.apk
+          unzip -t dist/InstantTranslator-AdminController.apk
+          ls -lh dist/
 
-      - name: Upload Debug APK Artifact
+      - name: Upload Original App APK
         uses: actions/upload-artifact@v4
         with:
-          name: LiveTranslator-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: Download-Original-Translator-APK
+          path: dist/InstantTranslator-Original.apk
           compression-level: 0
 
-      - name: Publish Direct APK to GitHub Releases
+      - name: Upload Admin Controller APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Download-Admin-Controller-APK
+          path: dist/InstantTranslator-AdminController.apk
+          compression-level: 0
+
+      - name: Publish Both APKs to GitHub Releases
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="latest-debug"
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" app/build/outputs/apk/debug/app-debug.apk --clobber
+            gh release upload "$TAG" dist/InstantTranslator-Original.apk dist/InstantTranslator-AdminController.apk --clobber
           else
-            gh release create "$TAG" app/build/outputs/apk/debug/app-debug.apk --title "LiveTranslator Debug APK" --notes "Direct APK download (no ZIP extraction needed)."
+            gh release create "$TAG" dist/InstantTranslator-Original.apk dist/InstantTranslator-AdminController.apk --title "InstantTranslator Dual APKs (Original + Admin Controller)" --notes "Download button 1: InstantTranslator-Original.apk | Download button 2: InstantTranslator-AdminController.apk"
           fi

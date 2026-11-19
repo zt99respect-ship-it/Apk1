@@ -263,7 +263,7 @@ fun AppBrandBadge(modifier: Modifier = Modifier) {
   ) {
     Icon(
       painter = painterResource(id = R.drawable.ic_brand_emblem),
-      contentDescription = "LiveTranslator",
+      contentDescription = "ترجمة فورية",
       tint = SoftLavender,
       modifier = Modifier.size(24.dp),
     )

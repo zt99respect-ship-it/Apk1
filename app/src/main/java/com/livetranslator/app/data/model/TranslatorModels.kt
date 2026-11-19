@@ -293,13 +293,32 @@ object SupportedLanguages {
       ?: explicitLanguages.first()
 }
 
+enum class TranslationMode(val key: String, val displayName: String, val subtitle: String) {
+  AUDIO_LIVE(
+    key = "audio_live",
+    displayName = "ترجمة الصوت",
+    subtitle = "ترجمة فورية لأصوات الفيديوهات والبثوث والميكروفون.",
+  ),
+  SCREEN_OCR(
+    key = "screen_ocr",
+    displayName = "ترجمة الشاشة",
+    subtitle = "قراءة وترجمة نصوص الألعاب والقوائم والصور على الشاشة مباشرة.",
+  );
+
+  companion object {
+    fun fromKey(key: String?): TranslationMode =
+      entries.firstOrNull { it.key == key } ?: AUDIO_LIVE
+  }
+}
+
 data class UserSettings(
   val onboardingCompleted: Boolean = false,
-  val accountLabel: String = "مستخدم LiveTranslator",
+  val accountLabel: String = "مستخدم ترجمة فورية",
   val sourceLanguageCode: String = SupportedLanguages.AUTO_CODE,
   val skipArabic: Boolean = true,
   val audioChunkSeconds: Int = 4,
   val autoRestartOnBoot: Boolean = false,
+  val translationMode: TranslationMode = TranslationMode.AUDIO_LIVE,
   val audioSourcePreference: AudioSourcePreference = AudioSourcePreference.SYSTEM_PLAYBACK,
   val speechEnginePreference: SpeechEnginePreference = SpeechEnginePreference.FLEXIBLE_AUTO,
   val overlayPosition: OverlayPosition = OverlayPosition.BOTTOM,
@@ -314,4 +333,7 @@ data class UserSettings(
   val overlayCornerRadiusDp: Float = 22f,
   val overlayCustomX: Int = -1,
   val overlayCustomY: Int = -1,
+  val screenScanIntervalMs: Long = 900L,
+  val otaFeedUrl: String = "",
+  val appliedPatchVersion: Int = 1,
 )

@@ -119,12 +119,12 @@ class TranslationRepository(
   suspend fun buildExportTxt(): String {
     val entries = historyDao.getAllOnce()
     if (entries.isEmpty()) {
-      return "سجل ترجمات LiveTranslator\nلا توجد ترجمات محفوظة حالياً.\n"
+      return "سجل ترجمات ترجمة فورية\nلا توجد ترجمات محفوظة حالياً.\n"
     }
     val formatter = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
     return buildString {
       appendLine("========================================")
-      appendLine("LiveTranslator — سجل الترجمة الفورية للصوت")
+      appendLine("ترجمة فورية — سجل الترجمة الفورية للصوت والشاشة")
       appendLine("تاريخ التصدير: ${formatter.format(Date())}")
       appendLine("عدد السجلات: ${entries.size}")
       appendLine("========================================")
@@ -153,6 +153,14 @@ class TranslationRepository(
 
   suspend fun setAutoRestartOnBoot(enabled: Boolean) =
     settingsDataStore.setAutoRestartOnBoot(enabled)
+
+  suspend fun setTranslationMode(mode: com.livetranslator.app.data.model.TranslationMode) =
+    settingsDataStore.setTranslationMode(mode)
+
+  suspend fun setOtaFeedUrl(url: String) = settingsDataStore.setOtaFeedUrl(url)
+
+  suspend fun setAppliedPatchVersion(version: Int) =
+    settingsDataStore.setAppliedPatchVersion(version)
 
   suspend fun setAudioSourcePreference(preference: AudioSourcePreference) =
     settingsDataStore.setAudioSourcePreference(preference)

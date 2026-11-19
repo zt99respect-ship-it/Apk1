@@ -1,0 +1,229 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isBootstrappedAdmin() {
+      return isSignedIn() &&
+             request.auth.token.email == 'mfr7h.carectar@gmail.com' &&
+             request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isBootstrappedAdmin() ||
+             (isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
+    }
+
+    function isValidTimestamp(ts) {
+      return ts is timestamp && ts <= request.time;
+    }
+
+    function isValidAdminDoc(data) {
+      return data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 &&
+             data.email is string && data.email.size() >= 3 && data.email.size() <= 200 &&
+             data.operatorUsername is string && data.operatorUsername.size() >= 2 && data.operatorUsername.size() <= 40 &&
+             isValidTimestamp(data.createdAt) &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidUserProfile(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.email is string && data.email.size() <= 200 &&
+             data.username is string && data.username.size() >= 2 && data.username.size() <= 40 &&
+             data.passwordHash is string && data.passwordHash.size() == 64 &&
+             data.passwordSalt is string && data.passwordSalt.size() >= 8 && data.passwordSalt.size() <= 64 &&
+             data.secretCode is string && data.secretCode.size() >= 6 && data.secretCode.size() <= 32 &&
+             data.role in ['user', 'admin'] &&
+             data.blocked is bool &&
+             data.appliedPatchVersion is int && data.appliedPatchVersion >= 1 && data.appliedPatchVersion <= 100000 &&
+             (!('blockedReason' in data) || (data.blockedReason is string && data.blockedReason.size() <= 300)) &&
+             (!('lastSeenAt' in data) || isValidTimestamp(data.lastSeenAt)) &&
+             isValidTimestamp(data.createdAt) &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidInboxMessage(data) {
+      return data.recipientUid is string && data.recipientUid.size() >= 1 && data.recipientUid.size() <= 128 &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 120 &&
+             data.body is string && data.body.size() >= 1 && data.body.size() <= 800 &&
+             data.category in ['update', 'announcement', 'warning', 'direct'] &&
+             data.read is bool &&
+             data.senderLabel is string && data.senderLabel.size() >= 1 && data.senderLabel.size() <= 60 &&
+             isValidTimestamp(data.createdAt) &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidHotfixProfile(data) {
+      return data.patchVersion is int && data.patchVersion >= 1 && data.patchVersion <= 100000 &&
+             data.patchNotes is string && data.patchNotes.size() <= 1000 &&
+             data.mandatoryHotfix is bool &&
+             data.glossaryAdditions is map && data.glossaryAdditions.size() <= 200 &&
+             data.noiseFilterAdditions is list && data.noiseFilterAdditions.size() <= 200 &&
+             (data.noiseFilterAdditions.size() == 0 || data.noiseFilterAdditions[0] is string) &&
+             data.latestAppVersionName is string && data.latestAppVersionName.size() <= 32 &&
+             data.apkDownloadUrl is string && data.apkDownloadUrl.size() <= 500 &&
+             data.controllerApkUrl is string && data.controllerApkUrl.size() <= 500 &&
+             data.updatedBy is string && data.updatedBy.size() >= 1 && data.updatedBy.size() <= 64 &&
+             isValidTimestamp(data.createdAt) &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidAppControlConfig(data) {
+      return data.maintenanceEnabled is bool &&
+             data.maintenanceMessage is string && data.maintenanceMessage.size() <= 600 &&
+             data.allowAudioLive is bool &&
+             data.allowScreenOcr is bool &&
+             data.allowOverlayBubble is bool &&
+             data.forceSkipArabic is bool &&
+             data.forcedSpeechEngine is string && data.forcedSpeechEngine.size() <= 32 &&
+             data.forcedSourceLanguage is string && data.forcedSourceLanguage.size() <= 16 &&
+             data.remoteAudioChunkSeconds is int && data.remoteAudioChunkSeconds >= 2 && data.remoteAudioChunkSeconds <= 15 &&
+             data.remoteScreenScanIntervalMs is int && data.remoteScreenScanIntervalMs >= 450 && data.remoteScreenScanIntervalMs <= 3000 &&
+             data.showGlobalBanner is bool &&
+             data.globalBannerTitle is string && data.globalBannerTitle.size() <= 120 &&
+             data.globalBannerMessage is string && data.globalBannerMessage.size() <= 500 &&
+             data.githubRepoSlug is string && data.githubRepoSlug.size() <= 120 &&
+             data.otaFeedUrl is string && data.otaFeedUrl.size() <= 500 &&
+             data.updatedBy is string && data.updatedBy.size() >= 1 && data.updatedBy.size() <= 64 &&
+             isValidTimestamp(data.createdAt) &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidRemoteNotification(data) {
+      return data.audience == 'all' &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 120 &&
+             data.body is string && data.body.size() >= 1 && data.body.size() <= 800 &&
+             data.category in ['update', 'announcement', 'warning'] &&
+             data.updateAlert is bool &&
+             data.senderLabel is string && data.senderLabel.size() >= 1 && data.senderLabel.size() <= 60 &&
+             isValidTimestamp(data.createdAt) &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    match /admins/{uid} {
+      allow get: if isValidId(uid) && isAdmin();
+      allow list: if isAdmin();
+      allow create: if isValidId(uid) && isAdmin() &&
+                       incoming().keys().hasAll(['uid', 'email', 'operatorUsername', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['uid', 'email', 'operatorUsername', 'createdAt', 'updatedAt']) &&
+                       incoming().uid == uid &&
+                       isValidAdminDoc(incoming());
+      allow update: if isValidId(uid) && isAdmin() &&
+                       isValidAdminDoc(incoming()) &&
+                       incoming().uid == existing().uid &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['email', 'operatorUsername', 'updatedAt']);
+      allow delete: if isValidId(uid) && isAdmin() && uid != request.auth.uid;
+    }
+
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && (request.auth.uid == userId || isAdmin());
+      allow list: if isAdmin();
+
+      allow create: if isSignedIn() && isValidId(userId) &&
+                       (request.auth.uid == userId || isAdmin()) &&
+                       incoming().userId == userId &&
+                       incoming().role == 'user' &&
+                       incoming().blocked == false &&
+                       incoming().keys().hasAll(['userId', 'email', 'username', 'passwordHash', 'passwordSalt', 'secretCode', 'role', 'blocked', 'appliedPatchVersion', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'email', 'username', 'passwordHash', 'passwordSalt', 'secretCode', 'role', 'blocked', 'blockedReason', 'appliedPatchVersion', 'lastSeenAt', 'createdAt', 'updatedAt']) &&
+                       isValidUserProfile(incoming());
+
+      allow update: if isSignedIn() && isValidId(userId) &&
+                       isValidUserProfile(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt && (
+                         (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['username', 'blocked', 'blockedReason', 'role', 'appliedPatchVersion', 'updatedAt'])) ||
+                         (request.auth.uid == userId &&
+                           incoming().role == existing().role &&
+                           incoming().blocked == existing().blocked &&
+                           incoming().secretCode == existing().secretCode &&
+                           incoming().diff(existing()).affectedKeys().hasOnly(['username', 'passwordHash', 'passwordSalt', 'appliedPatchVersion', 'lastSeenAt', 'updatedAt']))
+                       );
+
+      allow delete: if isSignedIn() && isValidId(userId) && (request.auth.uid == userId || isAdmin());
+
+      match /inbox/{messageId} {
+        allow get: if isSignedIn() && isValidId(userId) && isValidId(messageId) && (request.auth.uid == userId || isAdmin());
+        allow list: if isSignedIn() && isValidId(userId) && (request.auth.uid == userId || isAdmin());
+
+        allow create: if isValidId(userId) && isValidId(messageId) && isAdmin() &&
+                         incoming().recipientUid == userId &&
+                         incoming().keys().hasAll(['recipientUid', 'title', 'body', 'category', 'read', 'senderLabel', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['recipientUid', 'title', 'body', 'category', 'read', 'senderLabel', 'createdAt', 'updatedAt']) &&
+                         isValidInboxMessage(incoming());
+
+        allow update: if isSignedIn() && isValidId(userId) && isValidId(messageId) &&
+                         isValidInboxMessage(incoming()) &&
+                         incoming().recipientUid == existing().recipientUid &&
+                         incoming().createdAt == existing().createdAt && (
+                           isAdmin() ||
+                           (request.auth.uid == userId &&
+                             incoming().diff(existing()).affectedKeys().hasOnly(['read', 'updatedAt']))
+                         );
+
+        allow delete: if isSignedIn() && isValidId(userId) && isValidId(messageId) && (request.auth.uid == userId || isAdmin());
+      }
+    }
+
+    match /hotfix_profiles/{profileId} {
+      allow get: if isSignedIn() && isValidId(profileId);
+      allow list: if false;
+      allow create: if isValidId(profileId) && isAdmin() &&
+                       incoming().keys().hasAll(['patchVersion', 'patchNotes', 'mandatoryHotfix', 'glossaryAdditions', 'noiseFilterAdditions', 'latestAppVersionName', 'apkDownloadUrl', 'controllerApkUrl', 'updatedBy', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['patchVersion', 'patchNotes', 'mandatoryHotfix', 'glossaryAdditions', 'noiseFilterAdditions', 'latestAppVersionName', 'apkDownloadUrl', 'controllerApkUrl', 'updatedBy', 'createdAt', 'updatedAt']) &&
+                       isValidHotfixProfile(incoming());
+      allow update: if isValidId(profileId) && isAdmin() &&
+                       isValidHotfixProfile(incoming()) &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['patchVersion', 'patchNotes', 'mandatoryHotfix', 'glossaryAdditions', 'noiseFilterAdditions', 'latestAppVersionName', 'apkDownloadUrl', 'controllerApkUrl', 'updatedBy', 'updatedAt']);
+      allow delete: if isValidId(profileId) && isAdmin();
+    }
+
+    match /app_control/{configId} {
+      allow get: if isSignedIn() && isValidId(configId);
+      allow list: if false;
+      allow create: if isValidId(configId) && isAdmin() &&
+                       incoming().keys().hasAll(['maintenanceEnabled', 'maintenanceMessage', 'allowAudioLive', 'allowScreenOcr', 'allowOverlayBubble', 'forceSkipArabic', 'forcedSpeechEngine', 'forcedSourceLanguage', 'remoteAudioChunkSeconds', 'remoteScreenScanIntervalMs', 'showGlobalBanner', 'globalBannerTitle', 'globalBannerMessage', 'githubRepoSlug', 'otaFeedUrl', 'updatedBy', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['maintenanceEnabled', 'maintenanceMessage', 'allowAudioLive', 'allowScreenOcr', 'allowOverlayBubble', 'forceSkipArabic', 'forcedSpeechEngine', 'forcedSourceLanguage', 'remoteAudioChunkSeconds', 'remoteScreenScanIntervalMs', 'showGlobalBanner', 'globalBannerTitle', 'globalBannerMessage', 'githubRepoSlug', 'otaFeedUrl', 'updatedBy', 'createdAt', 'updatedAt']) &&
+                       isValidAppControlConfig(incoming());
+      allow update: if isValidId(configId) && isAdmin() &&
+                       isValidAppControlConfig(incoming()) &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['maintenanceEnabled', 'maintenanceMessage', 'allowAudioLive', 'allowScreenOcr', 'allowOverlayBubble', 'forceSkipArabic', 'forcedSpeechEngine', 'forcedSourceLanguage', 'remoteAudioChunkSeconds', 'remoteScreenScanIntervalMs', 'showGlobalBanner', 'globalBannerTitle', 'globalBannerMessage', 'githubRepoSlug', 'otaFeedUrl', 'updatedBy', 'updatedAt']);
+      allow delete: if isValidId(configId) && isAdmin();
+    }
+
+    match /remote_notifications/{notifId} {
+      allow get: if isSignedIn() && isValidId(notifId) && (isAdmin() || (resource != null && existing().audience == 'all'));
+      allow list: if isSignedIn() && (isAdmin() || existing().audience == 'all');
+      allow create: if isValidId(notifId) && isAdmin() &&
+                       incoming().keys().hasAll(['audience', 'title', 'body', 'category', 'updateAlert', 'senderLabel', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['audience', 'title', 'body', 'category', 'updateAlert', 'senderLabel', 'createdAt', 'updatedAt']) &&
+                       isValidRemoteNotification(incoming());
+      allow update: if isValidId(notifId) && isAdmin() &&
+                       isValidRemoteNotification(incoming()) &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['audience', 'title', 'body', 'category', 'updateAlert', 'senderLabel', 'updatedAt']);
+      allow delete: if isValidId(notifId) && isAdmin();
+    }
+  }
+}

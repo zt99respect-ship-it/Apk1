@@ -61,6 +61,7 @@ import com.livetranslator.app.LiveTranslatorApp
 import com.livetranslator.app.R
 import com.livetranslator.app.data.model.AudioSourcePreference
 import com.livetranslator.app.data.model.SupportedLanguages
+import com.livetranslator.app.data.model.TranslationMode
 import com.livetranslator.app.service.OverlayService
 import com.livetranslator.app.service.TranslationForegroundService
 import com.livetranslator.app.ui.theme.AmberAccent
@@ -91,6 +92,7 @@ fun HomeScreen(
   onNavigateToDevices: () -> Unit,
   onNavigateToAccount: () -> Unit,
   onNavigateToStyle: () -> Unit,
+  onNavigateToUpdates: () -> Unit,
 ) {
   val context = LocalContext.current
   val app = context.applicationContext as LiveTranslatorApp
@@ -98,6 +100,8 @@ fun HomeScreen(
   val settings by viewModel.settings.collectAsStateWithLifecycle()
   val sessionState by viewModel.sessionState.collectAsStateWithLifecycle()
   val modelsState by viewModel.modelsState.collectAsStateWithLifecycle()
+  val otaState by viewModel.otaState.collectAsStateWithLifecycle()
+  val remoteControl by app.remoteControlConfig.collectAsStateWithLifecycle()
   val latestHistory by viewModel.latestTranslation.collectAsStateWithLifecycle()
   val latestSession by viewModel.latestSession.collectAsStateWithLifecycle()
 
@@ -158,6 +162,14 @@ fun HomeScreen(
       context.startService(stopIntent)
       return
     }
+    if (settings.translationMode == TranslationMode.AUDIO_LIVE && !remoteControl.allowAudioLive) {
+      app.sessionManager.publishError("تم إيقاف وضع ترجمة الصوت مؤقتاً من لوحة التحكم.", expandOverlay = false)
+      return
+    }
+    if (settings.translationMode == TranslationMode.SCREEN_OCR && !remoteControl.allowScreenOcr) {
+      app.sessionManager.publishError("تم إيقاف وضع ترجمة الشاشة مؤقتاً من لوحة التحكم.", expandOverlay = false)
+      return
+    }
     if (!Settings.canDrawOverlays(context)) {
       overlayPermissionLauncher.launch(
         Intent(
@@ -167,7 +179,9 @@ fun HomeScreen(
       )
       return
     }
-    if (settings.audioSourcePreference == AudioSourcePreference.MICROPHONE) {
+    if (settings.translationMode == TranslationMode.AUDIO_LIVE &&
+      settings.audioSourcePreference == AudioSourcePreference.MICROPHONE
+    ) {
       if (hasMicPermission) {
         val serviceIntent =
           Intent(context, TranslationForegroundService::class.java).apply {
@@ -239,6 +253,24 @@ fun HomeScreen(
             tint = if (sessionState.isOverlayActive) SoftLavender else CrispWhite,
             modifier = Modifier.testTag("home_style_button"),
           )
+          Box {
+            CircularGlassIconButton(
+              iconRes = R.drawable.ic_bell,
+              contentDescription = "التحديثات والإشعارات",
+              onClick = onNavigateToUpdates,
+              tint = if (otaState.hasPendingPatchUpdate) AmberAccent else CrispWhite,
+              modifier = Modifier.testTag("home_updates_button"),
+            )
+            if (otaState.hasPendingPatchUpdate || otaState.hasNewBinaryRelease) {
+              Box(
+                modifier =
+                  Modifier.align(Alignment.TopEnd)
+                    .size(10.dp)
+                    .clip(CircleShape)
+                    .background(EmeraldAccent)
+              )
+            }
+          }
         }
 
         AppBrandBadge()
@@ -352,9 +384,13 @@ fun HomeScreen(
             ) {
               Text(
                 text =
-                  if (sessionState.audioLevel > 0.05f) "يلتقط صوت الهاتف الآن"
-                  else "في انتظار صوت مسموع...",
-                color = EmeraldAccent,
+                  when {
+                    sessionState.isArabicSpeechSkipped -> "كلام عربي (تم التخطي بذكاء)"
+                    sessionState.activeTranslationMode == TranslationMode.SCREEN_OCR -> "يقرأ نصوص الشاشة الآن"
+                    sessionState.audioLevel > 0.05f -> "يلتقط صوت الهاتف الآن"
+                    else -> "في انتظار صوت مسموع..."
+                  },
+                color = if (sessionState.isArabicSpeechSkipped) SoftLavender else EmeraldAccent,
                 style = MaterialTheme.typography.labelLarge,
               )
               Text(
@@ -498,7 +534,9 @@ fun HomeScreen(
                 else -> "تشغيل"
               },
             onClick = {
-              if (!Settings.canDrawOverlays(context)) {
+              if (!remoteControl.allowOverlayBubble) {
+                app.sessionManager.publishError("تم إيقاف الصندوق العائم مؤقتاً من لوحة التحكم.", expandOverlay = false)
+              } else if (!Settings.canDrawOverlays(context)) {
                 overlayPermissionLauncher.launch(
                   Intent(
                     Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
@@ -527,17 +565,72 @@ fun HomeScreen(
       Spacer(modifier = Modifier.height(14.dp))
 
       Text(
-        text = "تأكد أنك سمحت بالعرض فوق التطبيقات ثم اضغط «ابدأ الترجمة» لترجمة يوتيوب وأي صوت داخل الهاتف مباشرة.",
+        text =
+          if (settings.translationMode == TranslationMode.SCREEN_OCR) {
+            "في وضع ترجمة الشاشة، تُقرأ النصوص والألعاب والصفحات مباشرة على الشاشة دون أن تقرأ الترجمة العائمة نفسها."
+          } else {
+            "تأكد أنك سمحت بالعرض فوق التطبيقات ثم اضغط «ابدأ الترجمة» لترجمة يوتيوب وأي صوت داخل الهاتف مباشرة."
+          },
         style = MaterialTheme.typography.bodyMedium,
         color = MutedGrayText,
         lineHeight = 20.sp,
       )
 
-      Spacer(modifier = Modifier.height(22.dp))
+      Spacer(modifier = Modifier.height(14.dp))
+
+      // 2-Tab Mode Selector: Live Audio vs Live Screen OCR
+      Row(
+        modifier = Modifier.fillMaxWidth().testTag("home_mode_selector"),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+      ) {
+        TranslationMode.entries.forEach { mode ->
+          val selected = settings.translationMode == mode
+          val iconRes =
+            if (mode == TranslationMode.AUDIO_LIVE) R.drawable.ic_device_audio
+            else R.drawable.ic_screen_scan
+          Row(
+            modifier =
+              Modifier.weight(1f)
+                .height(48.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(
+                  if (selected) ElectricViolet.copy(alpha = 0.28f) else GlassCardFillStrong
+                )
+                .border(
+                  width = if (selected) 1.5.dp else 1.dp,
+                  color = if (selected) ElectricViolet else GlassWhiteBorder,
+                  shape = RoundedCornerShape(16.dp),
+                )
+                .clickable { viewModel.setTranslationMode(mode) }
+                .padding(horizontal = 12.dp)
+                .testTag("home_mode_${mode.key}"),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            Icon(
+              painter = painterResource(id = iconRes),
+              contentDescription = mode.displayName,
+              tint = if (selected) SoftLavender else LightGrayText,
+              modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+              text = mode.displayName,
+              color = if (selected) CrispWhite else LightGrayText,
+              fontSize = 13.sp,
+              fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+              maxLines = 1,
+            )
+          }
+        }
+      }
+
+      Spacer(modifier = Modifier.height(14.dp))
 
       GlassGradientPillButton(
         text =
           if (sessionState.isRunning) stringResource(R.string.home_stop_cta)
+          else if (settings.translationMode == TranslationMode.SCREEN_OCR) "ابدأ ترجمة الشاشة"
           else stringResource(R.string.home_start_cta),
         onClick = { startOrStopTranslation() },
         isActiveStop = sessionState.isRunning,

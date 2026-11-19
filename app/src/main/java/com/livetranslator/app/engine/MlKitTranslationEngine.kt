@@ -30,6 +30,10 @@ class MlKitTranslationEngine {
   private val warmedSourceLangs: MutableSet<String> = ConcurrentHashMap.newKeySet()
   private val translationCache = LruCache<String, TranslationOutcome>(192)
 
+  // Dynamic incremental OTA glossary & noise filter rules (updated without APK reinstall)
+  private val dynamicGlossary = ConcurrentHashMap<String, String>()
+  private val dynamicNoiseFilters: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
   @Volatile private var stickyAutoLangCode: String = TranslateLanguage.ENGLISH
 
   private val languageIdentifier: LanguageIdentifier by lazy {
@@ -38,10 +42,23 @@ class MlKitTranslationEngine {
     )
   }
 
-  /**
-   * Pre-warms ML Kit Translator and checks model readiness once up front so live frames
-   * translate in ~10-20ms without Play Services IPC checks on every word.
-   */
+  fun updateDynamicRules(glossary: Map<String, String>, noiseFilters: List<String>) {
+    dynamicGlossary.clear()
+    glossary.forEach { (k, v) ->
+      val key = k.trim().lowercase()
+      val value = v.trim()
+      if (key.isNotBlank() && value.isNotBlank()) {
+        dynamicGlossary[key] = value
+      }
+    }
+    dynamicNoiseFilters.clear()
+    noiseFilters.forEach { entry ->
+      val clean = entry.trim().lowercase()
+      if (clean.isNotBlank()) dynamicNoiseFilters.add(clean)
+    }
+    translationCache.evictAll()
+  }
+
   suspend fun prewarm(sourceLangCode: String) =
     withContext(Dispatchers.IO) {
       val initialLang =
@@ -57,10 +74,6 @@ class MlKitTranslationEngine {
       }
     }
 
-  /**
-   * Fast path for live partial subtitles: uses cache, zero-overhead script detection,
-   * confidence-hysteresis language lock, and pre-warmed translator.
-   */
   suspend fun translateLiveFast(
     text: String,
     sourceLangCode: String,
@@ -74,6 +87,14 @@ class MlKitTranslationEngine {
       }
       if (skipArabic && isMostlyArabic(trimmed)) {
         return@withContext Result.success(TranslationOutcome("", TranslateLanguage.ARABIC))
+      }
+      if (isFilteredNoiseOrPhoneticArabic(trimmed, skipArabic, dynamicNoiseFilters)) {
+        return@withContext Result.success(TranslationOutcome("", sourceLangCode))
+      }
+
+      val normalizedKey = trimmed.lowercase()
+      dynamicGlossary[normalizedKey]?.let { directArabic ->
+        return@withContext Result.success(TranslationOutcome(directArabic, "glossary"))
       }
 
       runCatching {
@@ -92,13 +113,14 @@ class MlKitTranslationEngine {
           translationCache.get(cacheKey)?.let { return@withLock it }
           ensurePairDownloadedCached(resolvedMlKitSource)
           val activeTranslator = getOrCreateTranslator(resolvedMlKitSource)
-          val translated = activeTranslator.translate(trimmed).awaitResult().trim()
+          val rawTranslated = activeTranslator.translate(trimmed).awaitResult().trim()
+          val polished = applyGlossaryReplacements(rawTranslated, trimmed, dynamicGlossary)
           val outcome =
             TranslationOutcome(
-              translatedText = translated,
+              translatedText = polished,
               resolvedSourceLangCode = resolvedMlKitSource,
             )
-          if (translated.isNotBlank()) {
+          if (polished.isNotBlank()) {
             translationCache.put(cacheKey, outcome)
           }
           outcome
@@ -140,7 +162,6 @@ class MlKitTranslationEngine {
       return explicit
     }
 
-    // Fast 0.01ms Unicode script detection for unambiguous non-Latin scripts
     detectScriptFast(text)?.let { scriptLang ->
       stickyAutoLangCode = scriptLang
       return scriptLang
@@ -151,7 +172,6 @@ class MlKitTranslationEngine {
         ?.takeIf { it != SupportedLanguages.AUTO_CODE }
         ?.let { SupportedLanguages.findByCode(it).mlKitLanguageCode }
 
-    // For very short snippets (< 12 chars or < 3 words), avoid Latin-script misidentification jitter
     val wordCount = text.count { it == ' ' } + 1
     if (text.length < 12 && wordCount < 3) {
       return normalizedHint ?: stickyAutoLangCode
@@ -178,7 +198,6 @@ class MlKitTranslationEngine {
     val mlKitTag = TranslateLanguage.fromLanguageTag(topCandidate.languageTag)
       ?: return normalizedHint ?: stickyAutoLangCode
 
-    // Hysteresis: only flip sticky Latin language if ML Kit is strongly confident (>= 0.72)
     val requiredConfidence = if (mlKitTag == stickyAutoLangCode) 0.45f else 0.72f
     return if (topCandidate.confidence >= requiredConfidence) {
       stickyAutoLangCode = mlKitTag
@@ -215,6 +234,44 @@ class MlKitTranslationEngine {
     }
 
   companion object {
+    private val BUILTIN_NOISE_PHRASES =
+      setOf(
+        "uh", "um", "ah", "eh", "oh", "hmm", "huh", "the", "a", "an",
+        "ya", "wallah", "yalla", "habibi", "inshallah", "mashallah", "subhanallah",
+        "alhamdulillah", "astaghfirullah", "bismillah", "salam", "assalamu",
+      )
+
+    internal fun isFilteredNoiseOrPhoneticArabic(
+      text: String,
+      skipArabic: Boolean,
+      extraNoiseFilters: Set<String> = emptySet(),
+    ): Boolean {
+      val lower = text.trim().lowercase()
+      if (lower.length < 2) return true
+      if (BUILTIN_NOISE_PHRASES.contains(lower) || extraNoiseFilters.contains(lower)) {
+        return true
+      }
+      if (!skipArabic) return false
+
+      // Transliterated Arabic words often forced by Latin STT models
+      val tokens = lower.split(' ').filter { it.isNotBlank() }
+      val romanArabicHits =
+        tokens.count { tok ->
+          tok in setOf("wallah", "yalla", "ya", "habibi", "shabab", "khallas", "ana", "enta", "allah", "inshallah")
+        }
+      return tokens.isNotEmpty() && romanArabicHits * 2 >= tokens.size
+    }
+
+    private fun applyGlossaryReplacements(
+      translatedArabic: String,
+      originalSource: String,
+      glossary: Map<String, String>,
+    ): String {
+      if (glossary.isEmpty()) return translatedArabic
+      val exact = glossary[originalSource.trim().lowercase()]
+      return exact ?: translatedArabic
+    }
+
     internal fun detectScriptFast(text: String): String? {
       var arabic = 0
       var cyrillic = 0

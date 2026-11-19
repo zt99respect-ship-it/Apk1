@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">LiveTranslator</string>
-    <string name="app_subtitle">ترجمة أصوات الهاتف الفورية إلى العربية</string>
+    <string name="app_name">ترجمة فورية</string>
+    <string name="app_subtitle">ترجمة الصوت والشاشة فوراً إلى العربية</string>
 
     <!-- Bottom Navigation -->
     <string name="nav_home">الرئيسية</string>
@@ -11,11 +11,13 @@
 
     <!-- Notifications -->
     <string name="notification_channel_name">خدمة الترجمة الفورية</string>
-    <string name="notification_channel_desc">إشعار دائم للتحكم بالتقاط صوت الهاتف والصندوق العائم</string>
-    <string name="notification_title_active">LiveTranslator يترجم الآن</string>
-    <string name="notification_text_listening">يتم التقاط صوت الهاتف وترجمته فورياً إلى العربية</string>
-    <string name="notification_title_standby">الصندوق العائم جاهز</string>
-    <string name="notification_text_standby">اضغط لفتح بطاقة الترجمة أو إيقافها</string>
+    <string name="notification_channel_desc">إشعار دائم للتحكم بالتقاط صوت الهاتف والشاشة والصندوق العائم</string>
+    <string name="notification_alerts_channel_name">تنبيهات وتحديثات ترجمة فورية</string>
+    <string name="notification_alerts_channel_desc">إشعارات التحديثات الجزئية والتنبيهات المرسلة داخل التطبيق</string>
+    <string name="notification_title_active">ترجمة فورية يعمل الآن</string>
+    <string name="notification_text_listening">يتم التقاط المحتوى وترجمته فوراً إلى العربية</string>
+    <string name="notification_title_standby">العلامة المائية جاهزة</string>
+    <string name="notification_text_standby">اضغط لفتح لوحة التحكم أو إخفاء الصندوق العائم</string>
     <string name="notification_action_stop">إيقاف</string>
 
     <!-- Onboarding -->
@@ -34,7 +36,7 @@
     <!-- Summary -->
     <string name="summary_title">الملخص</string>
     <string name="summary_empty_title">لا توجد جلسات بعد</string>
-    <string name="summary_empty_subtitle">بعد أول جلسة ترجمة لصوت الهاتف سيظهر سجلها والنصوص المترجمة هنا.</string>
+    <string name="summary_empty_subtitle">بعد أول جلسة ترجمة للصوت أو الشاشة سيظهر سجلها والنصوص المترجمة هنا.</string>
     <string name="summary_search_hint">ابحث في الجلسات أو الترجمة العربية...</string>
     <string name="summary_clear_title">مسح جميع الجلسات؟</string>
     <string name="summary_clear_message">سيؤدي هذا إلى حذف سجل الجلسات والترجمات المحفوظة من هذا الجهاز نهائياً.</string>
@@ -42,7 +44,7 @@
     <string name="summary_cancel">إلغاء</string>
 
     <!-- Overlay -->
-    <string name="overlay_bubble_desc">فقاعة الترجمة العائمة</string>
-    <string name="overlay_close_desc">تصغير صندوق الترجمة</string>
-    <string name="overlay_snoozed_toast">تم إخفاء الفقاعة العائمة لمدة 5 دقائق</string>
+    <string name="overlay_bubble_desc">أيقونة التحكم العائمة</string>
+    <string name="overlay_close_desc">إغلاق لوحة التحكم</string>
+    <string name="overlay_snoozed_toast">تم إخفاء العلامة المائية لمدة 5 دقائق</string>
 </resources>

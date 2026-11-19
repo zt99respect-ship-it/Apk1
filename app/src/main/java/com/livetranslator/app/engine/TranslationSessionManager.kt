@@ -2,6 +2,7 @@ package com.livetranslator.app.engine
 
 import android.content.Intent
 import com.livetranslator.app.data.model.SupportedLanguages
+import com.livetranslator.app.data.model.TranslationMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -11,13 +12,16 @@ data class TranslationSessionState(
   val isRunning: Boolean = false,
   val isTranslating: Boolean = false,
   val isLivePartial: Boolean = false,
+  val isArabicSpeechSkipped: Boolean = false,
+  val activeTranslationMode: TranslationMode = TranslationMode.AUDIO_LIVE,
   val isOverlayActive: Boolean = false,
   val isControlPanelOpen: Boolean = false,
   val isSubtitleVisible: Boolean = true,
   val isRepositioningSubtitle: Boolean = false,
   val pendingStartRequestId: Long = 0L,
+  val pendingOpenUpdatesRequestId: Long = 0L,
   val bubbleSnoozedUntilMs: Long = 0L,
-  val statusMessage: String = "الخدمة الفورية جاهزة • بدون قيود",
+  val statusMessage: String = "الخدمة الفورية جاهزة • صوت وشاشة",
   val engineMode: String = "خامل",
   val audioLevel: Float = 0f,
   val segmentsTranslated: Int = 0,
@@ -59,11 +63,14 @@ class TranslationSessionManager {
     status: String,
     mode: String,
     sessionId: Long? = null,
+    translationMode: TranslationMode = _state.value.activeTranslationMode,
   ) {
     _state.update {
       it.copy(
         isRunning = running,
         isLivePartial = if (running) it.isLivePartial else false,
+        isArabicSpeechSkipped = false,
+        activeTranslationMode = translationMode,
         statusMessage = status,
         engineMode = mode,
         audioLevel = if (running) it.audioLevel else 0f,
@@ -90,14 +97,21 @@ class TranslationSessionManager {
       it.copy(
         lastPartialSource = partialText,
         isTranslating = partialText.isNotBlank(),
+        isArabicSpeechSkipped = false,
       )
     }
   }
 
-  /**
-   * Publishes real-time Arabic translation directly from partial speech recognition
-   * so subtitles appear instantaneously while the speaker is still talking.
-   */
+  fun markArabicSpeechSkipped() {
+    _state.update {
+      it.copy(
+        isTranslating = false,
+        isArabicSpeechSkipped = true,
+        lastPartialSource = "كلام عربي (تم التخطي تلقائياً)",
+      )
+    }
+  }
+
   fun publishLivePartialTranslation(
     partialSource: String,
     liveArabicText: String,
@@ -107,6 +121,7 @@ class TranslationSessionManager {
       it.copy(
         isTranslating = false,
         isLivePartial = true,
+        isArabicSpeechSkipped = false,
         lastPartialSource = partialSource,
         lastTranslatedText = liveArabicText,
         lastSourceLang = sourceLang,
@@ -159,6 +174,14 @@ class TranslationSessionManager {
     _state.update { it.copy(pendingStartRequestId = 0L) }
   }
 
+  fun requestOpenUpdatesCenter() {
+    _state.update { it.copy(pendingOpenUpdatesRequestId = System.nanoTime()) }
+  }
+
+  fun clearOpenUpdatesRequest() {
+    _state.update { it.copy(pendingOpenUpdatesRequestId = 0L) }
+  }
+
   fun snoozeBubbleFor(durationMs: Long) {
     _state.update {
       it.copy(
@@ -182,6 +205,7 @@ class TranslationSessionManager {
       it.copy(
         isTranslating = false,
         isLivePartial = false,
+        isArabicSpeechSkipped = false,
         segmentsTranslated = it.segmentsTranslated + 1,
         lastPartialSource = "",
         lastSourceText = sourceText,

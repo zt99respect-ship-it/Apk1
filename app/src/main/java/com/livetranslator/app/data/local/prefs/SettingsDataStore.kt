@@ -18,6 +18,7 @@ import com.livetranslator.app.data.model.OverlayPosition
 import com.livetranslator.app.data.model.OverlayStylePreset
 import com.livetranslator.app.data.model.SpeechEnginePreference
 import com.livetranslator.app.data.model.SupportedLanguages
+import com.livetranslator.app.data.model.TranslationMode
 import com.livetranslator.app.data.model.UserSettings
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -34,6 +35,7 @@ class SettingsDataStore(private val context: Context) {
     val SKIP_ARABIC = booleanPreferencesKey("skip_arabic")
     val AUDIO_CHUNK_SECONDS = intPreferencesKey("audio_chunk_seconds")
     val AUTO_RESTART_ON_BOOT = booleanPreferencesKey("auto_restart_on_boot")
+    val TRANSLATION_MODE = stringPreferencesKey("translation_mode")
     val AUDIO_SOURCE_PREFERENCE = stringPreferencesKey("audio_source_preference")
     val SPEECH_ENGINE_PREFERENCE = stringPreferencesKey("speech_engine_preference")
     val OVERLAY_POSITION = stringPreferencesKey("overlay_position")
@@ -48,6 +50,9 @@ class SettingsDataStore(private val context: Context) {
     val OVERLAY_CORNER_RADIUS_DP = floatPreferencesKey("overlay_corner_radius_dp")
     val OVERLAY_CUSTOM_X = intPreferencesKey("overlay_custom_x")
     val OVERLAY_CUSTOM_Y = intPreferencesKey("overlay_custom_y")
+    val SCREEN_SCAN_INTERVAL_MS = longPreferencesKey("screen_scan_interval_ms")
+    val OTA_FEED_URL = stringPreferencesKey("ota_feed_url")
+    val APPLIED_PATCH_VERSION = intPreferencesKey("applied_patch_version")
   }
 
   val settingsFlow: Flow<UserSettings> =
@@ -55,11 +60,12 @@ class SettingsDataStore(private val context: Context) {
       UserSettings(
         onboardingCompleted = prefs[Keys.ONBOARDING_COMPLETED] ?: false,
         accountLabel =
-          prefs[Keys.ACCOUNT_LABEL]?.takeIf { it.isNotBlank() } ?: "مستخدم LiveTranslator",
+          prefs[Keys.ACCOUNT_LABEL]?.takeIf { it.isNotBlank() } ?: "مستخدم ترجمة فورية",
         sourceLanguageCode = prefs[Keys.SOURCE_LANGUAGE_CODE] ?: SupportedLanguages.AUTO_CODE,
         skipArabic = prefs[Keys.SKIP_ARABIC] ?: true,
         audioChunkSeconds = (prefs[Keys.AUDIO_CHUNK_SECONDS] ?: 4).coerceIn(2, 15),
         autoRestartOnBoot = prefs[Keys.AUTO_RESTART_ON_BOOT] ?: false,
+        translationMode = TranslationMode.fromKey(prefs[Keys.TRANSLATION_MODE]),
         audioSourcePreference =
           AudioSourcePreference.fromKey(prefs[Keys.AUDIO_SOURCE_PREFERENCE]),
         speechEnginePreference =
@@ -86,6 +92,9 @@ class SettingsDataStore(private val context: Context) {
         overlayCornerRadiusDp = (prefs[Keys.OVERLAY_CORNER_RADIUS_DP] ?: 22f).coerceIn(0f, 32f),
         overlayCustomX = prefs[Keys.OVERLAY_CUSTOM_X] ?: -1,
         overlayCustomY = prefs[Keys.OVERLAY_CUSTOM_Y] ?: -1,
+        screenScanIntervalMs = (prefs[Keys.SCREEN_SCAN_INTERVAL_MS] ?: 900L).coerceIn(400L, 3000L),
+        otaFeedUrl = prefs[Keys.OTA_FEED_URL] ?: "",
+        appliedPatchVersion = (prefs[Keys.APPLIED_PATCH_VERSION] ?: 1).coerceAtLeast(1),
       )
     }
 
@@ -95,7 +104,7 @@ class SettingsDataStore(private val context: Context) {
 
   suspend fun setAccountLabel(label: String) {
     context.settingsDataStore.edit {
-      it[Keys.ACCOUNT_LABEL] = label.trim().ifBlank { "مستخدم LiveTranslator" }
+      it[Keys.ACCOUNT_LABEL] = label.trim().ifBlank { "مستخدم ترجمة فورية" }
     }
   }
 
@@ -113,6 +122,10 @@ class SettingsDataStore(private val context: Context) {
 
   suspend fun setAutoRestartOnBoot(enabled: Boolean) {
     context.settingsDataStore.edit { it[Keys.AUTO_RESTART_ON_BOOT] = enabled }
+  }
+
+  suspend fun setTranslationMode(mode: TranslationMode) {
+    context.settingsDataStore.edit { it[Keys.TRANSLATION_MODE] = mode.key }
   }
 
   suspend fun setAudioSourcePreference(preference: AudioSourcePreference) {
@@ -212,6 +225,14 @@ class SettingsDataStore(private val context: Context) {
       it[Keys.OVERLAY_CUSTOM_X] = -1
       it[Keys.OVERLAY_CUSTOM_Y] = -1
     }
+  }
+
+  suspend fun setOtaFeedUrl(url: String) {
+    context.settingsDataStore.edit { it[Keys.OTA_FEED_URL] = url.trim() }
+  }
+
+  suspend fun setAppliedPatchVersion(version: Int) {
+    context.settingsDataStore.edit { it[Keys.APPLIED_PATCH_VERSION] = version.coerceAtLeast(1) }
   }
 
   suspend fun resetStyleToDefaults() {

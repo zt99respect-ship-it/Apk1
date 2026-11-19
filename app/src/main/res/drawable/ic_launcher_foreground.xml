@@ -1,8 +1,46 @@
 <?xml version="1.0" encoding="utf-8"?>
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item
-        android:width="66dp"
-        android:height="66dp"
-        android:drawable="@drawable/img_app_icon"
-        android:gravity="center" />
-</layer-list>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Outer luminous purple aura ring -->
+    <path
+        android:fillColor="#2A8B5CF6"
+        android:pathData="M54,18 C73.88,18 90,34.12 90,54 C90,73.88 73.88,90 54,90 C34.12,90 18,73.88 18,54 C18,34.12 34.12,18 54,18 Z" />
+
+    <!-- Primary rounded glass prism bubble -->
+    <path
+        android:fillColor="#8B5CF6"
+        android:strokeColor="#DDD6FE"
+        android:strokeWidth="1.8"
+        android:pathData="M34,27 L74,27 C78.97,27 83,31.03 83,36 L83,64 C83,68.97 78.97,73 74,73 L59,73 L49,83 L49,73 L34,73 C29.03,73 25,68.97 25,64 L25,36 C25,31.03 29.03,27 34,27 Z" />
+
+    <!-- Inner dark glass cutout for crisp contrast -->
+    <path
+        android:fillColor="#170A33"
+        android:pathData="M36,32 L72,32 C74.76,32 77,34.24 77,37 L77,63 C77,65.76 74.76,68 72,68 L36,68 C33.24,68 31,65.76 31,63 L31,37 C31,34.24 33.24,32 36,32 Z" />
+
+    <!-- Stylized live audio / translation wave bars in crisp white & lavender -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M39,45 C40.1,45 41,45.9 41,47 L41,53 C41,54.1 40.1,55 39,55 C37.9,55 37,54.1 37,53 L37,47 C37,45.9 37.9,45 39,45 Z" />
+    <path
+        android:fillColor="#DDD6FE"
+        android:pathData="M46,39 C47.1,39 48,39.9 48,41 L48,59 C48,60.1 47.1,61 46,61 C44.9,61 44,60.1 44,59 L44,41 C44,39.9 44.9,39 46,39 Z" />
+
+    <!-- Stylized Arabic 'ع / ض' arc + instant spark -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3.6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M68,42 C63.5,39.5 57.5,41 56.5,45.2 C55.6,49 60.5,51.2 65,51 C58.5,52 54.5,56.5 56.8,60.8 C59.2,64.8 67.5,64 72,59" />
+
+    <!-- Cyan-lavender live pulse dot -->
+    <path
+        android:fillColor="#38BDF8"
+        android:pathData="M67.5,36.5 A2.8,2.8 0 1,1 67.49,36.5 Z" />
+</vector>

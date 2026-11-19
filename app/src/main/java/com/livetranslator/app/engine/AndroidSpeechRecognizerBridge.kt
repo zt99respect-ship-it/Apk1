@@ -16,7 +16,8 @@ import java.io.OutputStream
 
 /**
  * Low-latency streaming SpeechRecognizer bridge (supporting API 33+ EXTRA_AUDIO_SOURCE PCM pipe
- * for internal system audio) with automatic silent-stall watchdog failover to local Vosk.
+ * and API 34+ multi-language detection to skip Arabic speech cleanly without gibberish),
+ * with automatic silent-stall watchdog failover to local Vosk.
  */
 class AndroidSpeechRecognizerBridge(private val context: Context) {
 
@@ -31,32 +32,44 @@ class AndroidSpeechRecognizerBridge(private val context: Context) {
   @Volatile private var firstSpeechAudioMs = 0L
   @Volatile private var lastRecognitionActivityMs = 0L
   @Volatile private var receivedAnyRecognitionOutput = false
+  @Volatile private var arabicDetectedUntilMs = 0L
+  @Volatile private var skipArabicEnabled = true
 
   private var configuredLangCode: String = SupportedLanguages.AUTO_CODE
   private var onPartialCallback: ((String) -> Unit)? = null
   private var onFinalCallback: ((String) -> Unit)? = null
+  private var onArabicDetectedCallback: (() -> Unit)? = null
   private var onFallbackCallback: ((String) -> Unit)? = null
 
   fun isPipeAvailable(): Boolean =
     Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
       SpeechRecognizer.isRecognitionAvailable(context)
 
+  fun updateSkipArabic(skipArabic: Boolean) {
+    skipArabicEnabled = skipArabic
+  }
+
   fun startWithPcmPipe(
     sourceLanguageCode: String,
+    skipArabic: Boolean,
     onPartial: (String) -> Unit,
     onFinal: (String) -> Unit,
+    onArabicSpeechDetected: () -> Unit,
     onFallbackToVosk: (String) -> Unit,
   ): Boolean {
     if (!isPipeAvailable()) return false
     stop()
 
     configuredLangCode = sourceLanguageCode
+    skipArabicEnabled = skipArabic
     onPartialCallback = onPartial
     onFinalCallback = onFinal
+    onArabicDetectedCallback = onArabicSpeechDetected
     onFallbackCallback = onFallbackToVosk
     usingAudioPipe = true
     active = true
     firstSpeechAudioMs = 0L
+    arabicDetectedUntilMs = 0L
     lastRecognitionActivityMs = System.currentTimeMillis()
     receivedAnyRecognitionOutput = false
 
@@ -76,10 +89,6 @@ class AndroidSpeechRecognizerBridge(private val context: Context) {
     return true
   }
 
-  /**
-   * Feeds a PCM frame to the SpeechRecognizer pipe and checks whether active speech has stalled
-   * silently without producing any partials/finals (common when an OEM speech service blocks pipes).
-   */
   fun writePcmFrame(pcmBytes: ByteArray, length: Int, isSpeechActive: Boolean): Boolean {
     if (!active || !usingAudioPipe) return false
     val stream = pipeOutputStream ?: return false
@@ -136,6 +145,19 @@ class AndroidSpeechRecognizerBridge(private val context: Context) {
         override fun onBufferReceived(buffer: ByteArray?) {}
         override fun onEndOfSpeech() {}
 
+        override fun onLanguageDetection(results: Bundle) {
+          if (!active) return
+          receivedAnyRecognitionOutput = true
+          lastRecognitionActivityMs = System.currentTimeMillis()
+          val detectedLang = results.getString("detected_language").orEmpty().lowercase()
+          if (skipArabicEnabled && detectedLang.startsWith("ar")) {
+            arabicDetectedUntilMs = System.currentTimeMillis() + 2600L
+            onArabicDetectedCallback?.invoke()
+          } else if (detectedLang.isNotBlank() && !detectedLang.startsWith("ar")) {
+            arabicDetectedUntilMs = 0L
+          }
+        }
+
         override fun onError(error: Int) {
           if (!active) return
           if (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
@@ -150,13 +172,26 @@ class AndroidSpeechRecognizerBridge(private val context: Context) {
           receivedAnyRecognitionOutput = true
           lastRecognitionActivityMs = System.currentTimeMillis()
           firstSpeechAudioMs = 0L
+
+          val now = System.currentTimeMillis()
+          if (skipArabicEnabled && now < arabicDetectedUntilMs) {
+            restartSoon(usePipe = usePipe)
+            return
+          }
+
           val text =
             results
               ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
               ?.firstOrNull()
               ?.trim()
               .orEmpty()
-          if (text.isNotBlank()) {
+
+          val scores = results?.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES)
+          val topScore = scores?.firstOrNull() ?: 1f
+
+          // Drop low-confidence phonetic mismatches (e.g. Arabic/noise forced into English)
+          val reliable = topScore <= 0f || topScore >= 0.50f
+          if (text.isNotBlank() && reliable) {
             onFinalCallback?.invoke(text)
           }
           restartSoon(usePipe = usePipe)
@@ -164,6 +199,10 @@ class AndroidSpeechRecognizerBridge(private val context: Context) {
 
         override fun onPartialResults(partialResults: Bundle?) {
           if (!active) return
+          val now = System.currentTimeMillis()
+          if (skipArabicEnabled && now < arabicDetectedUntilMs) {
+            return
+          }
           val partial =
             partialResults
               ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
@@ -172,7 +211,7 @@ class AndroidSpeechRecognizerBridge(private val context: Context) {
               .orEmpty()
           if (partial.isNotBlank()) {
             receivedAnyRecognitionOutput = true
-            lastRecognitionActivityMs = System.currentTimeMillis()
+            lastRecognitionActivityMs = now
             firstSpeechAudioMs = 0L
             onPartialCallback?.invoke(partial)
           }
@@ -190,9 +229,22 @@ class AndroidSpeechRecognizerBridge(private val context: Context) {
         putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 280L)
         putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 480L)
         putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 800L)
+
         val localeTag = SupportedLanguages.findByCode(configuredLangCode).speechLocaleTag
         putExtra(RecognizerIntent.EXTRA_LANGUAGE, localeTag)
         putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, localeTag)
+
+        if (
+          configuredLangCode == SupportedLanguages.AUTO_CODE &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
+        ) {
+          putExtra(RecognizerIntent.EXTRA_ENABLE_LANGUAGE_DETECTION, true)
+          putStringArrayListExtra(
+            RecognizerIntent.EXTRA_LANGUAGE_DETECTION_ALLOWED_LANGUAGES,
+            arrayListOf("en-US", "ar-SA", "tr-TR", "es-ES", "fr-FR", "de-DE", "ru-RU", "ja-JP", "ko-KR"),
+          )
+        }
+
         if (usePipe && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
           pipeReadFd?.let { readFd ->
             putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE, readFd)
@@ -233,9 +285,11 @@ class AndroidSpeechRecognizerBridge(private val context: Context) {
     active = false
     usingAudioPipe = false
     firstSpeechAudioMs = 0L
+    arabicDetectedUntilMs = 0L
     receivedAnyRecognitionOutput = false
     onPartialCallback = null
     onFinalCallback = null
+    onArabicDetectedCallback = null
     onFallbackCallback = null
     mainHandler.removeCallbacksAndMessages(null)
     mainHandler.post {
