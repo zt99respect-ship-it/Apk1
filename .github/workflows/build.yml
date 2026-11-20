@@ -32,9 +32,38 @@ jobs:
           gradle-version: '9.3.1'
 
       - name: Ensure CI debug keystore exists
+        env:
+          DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
         run: |
           if [ ! -f debug.keystore ]; then
-            keytool -genkeypair -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+            if [ -n "$DEBUG_KEYSTORE_BASE64" ]; then
+              printf '%s' "$DEBUG_KEYSTORE_BASE64" | tr -d '[:space:]' | base64 -d > debug.keystore
+            elif [ -f debug.keystore.base64 ]; then
+              tr -d '[:space:]' < debug.keystore.base64 | base64 -d > debug.keystore
+            else
+              keytool -genkeypair -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+            fi
+          fi
+
+      - name: Ensure google-services.json exists for both modules
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ ! -f app/google-services.json ]; then
+            if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+              FIRST_CHAR=$(printf '%s' "$GOOGLE_SERVICES_JSON" | tr -d '[:space:]' | cut -c1)
+              if [ "$FIRST_CHAR" = "{" ]; then
+                printf '%s' "$GOOGLE_SERVICES_JSON" > app/google-services.json
+              else
+                printf '%s' "$GOOGLE_SERVICES_JSON" | tr -d '[:space:]' | base64 -d > app/google-services.json
+              fi
+            else
+              echo "::error::Missing app/google-services.json! AI Studio omits google-services.json when pushing to GitHub. Add GitHub Secret GOOGLE_SERVICES_JSON (Settings -> Secrets and variables -> Actions) OR upload app/google-services.json directly to the GitHub repository."
+              exit 1
+            fi
+          fi
+          if [ ! -f controller/google-services.json ]; then
+            cp app/google-services.json controller/google-services.json
           fi
 
       - name: Build Both Debug APKs
